@@ -1,0 +1,22 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "dnd-dm",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-01",
+  "routes": [
+    { "pattern": "dnd-dm.bob-mai.com", "custom_domain": true }
+  ],
+  "ai": { "binding": "AI" },
+  "kv_namespaces": [
+    { "binding": "ROOM_BUDGET", "id": "ba3dc0955538477383e9e1d5a2d7ec95" }
+  ],
+  "durable_objects": {
+    "bindings": [
+      { "name": "GAME_ROOM", "class_name": "GameRoom" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["GameRoom"] }
+  ],
+  "observability": { "enabled": true, "head_sampling_rate": 1 }
+}

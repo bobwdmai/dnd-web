@@ -37,7 +37,8 @@ export default {
     try {
       return await handle(request, env);
     } catch (err) {
-      return new Response(JSON.stringify({ debug_error: String(err && err.stack || err) }), {
+      console.error('Unhandled error', err instanceof Error ? err.stack : String(err));
+      return new Response(JSON.stringify({ error: 'Internal error' }), {
         status: 500, headers: { 'content-type': 'application/json', ...corsHeaders(request) }
       });
     }

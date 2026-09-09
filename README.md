@@ -28,6 +28,11 @@ by Cloudflare Workers AI, with no server to run and no API keys shipped to the b
 - **Budget**: `worker/src/budget.js` tracks Workers AI neuron spend per day in KV and refuses new turns
   past a cap, so cost stays bounded regardless of traffic — the same pattern used by
   [ClearSpeak](https://github.com/bobwdmai/clearspeak)'s level generator.
+- **Owner & End Game**: the room's state persists on every single action automatically (it's just
+  Durable Object storage — there's no separate "save"). Whoever first joins a room becomes its
+  owner and is the only one who can end it; ending broadcasts a notice to everyone still connected,
+  marks the room closed (further join attempts get a 410), and closes every socket. The data itself
+  is never deleted — "closed" only means the room stops accepting new connections.
 
 ## Deploy the worker
 

@@ -21,6 +21,45 @@ function errMsg(err) {
   try { return String(err); } catch { return 'unknown error'; }
 }
 
+function str(v, max) { return String(v ?? '').trim().slice(0, max); }
+function num(v, min, max, fallback) {
+  const n = Math.round(Number(v));
+  return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : fallback;
+}
+function strList(v, maxItems, maxLen) {
+  if (!Array.isArray(v)) return [];
+  return v.filter(x => typeof x === 'string' && x.trim()).slice(0, maxItems).map(x => str(x, maxLen));
+}
+
+/** Validates and clamps a manually-submitted character sheet — this endpoint is public and
+ *  unauthenticated, so never trust shapes or sizes from the client. */
+function sanitizeSheet(raw, playerName) {
+  const ab = raw?.abilityScores || {};
+  const hpMax = num(raw?.hp?.max, 1, 999, 10);
+  return {
+    name: str(raw?.name, 40) || playerName,
+    race: str(raw?.race, 40),
+    class: str(raw?.class, 40),
+    level: num(raw?.level, 1, 20, 1),
+    background: str(raw?.background, 60),
+    alignment: str(raw?.alignment, 30),
+    abilityScores: {
+      STR: num(ab.STR, 1, 30, 10), DEX: num(ab.DEX, 1, 30, 10), CON: num(ab.CON, 1, 30, 10),
+      INT: num(ab.INT, 1, 30, 10), WIS: num(ab.WIS, 1, 30, 10), CHA: num(ab.CHA, 1, 30, 10)
+    },
+    hp: { current: num(raw?.hp?.current, 0, hpMax, hpMax), max: hpMax },
+    armorClass: num(raw?.armorClass, 1, 40, 10),
+    speed: num(raw?.speed, 0, 200, 30),
+    proficiencyBonus: num(raw?.proficiencyBonus, 0, 10, 2),
+    savingThrows: strList(raw?.savingThrows, 20, 30),
+    skills: strList(raw?.skills, 30, 40),
+    equipment: strList(raw?.equipment, 40, 60),
+    features: strList(raw?.features, 30, 80),
+    spells: strList(raw?.spells, 40, 60),
+    notes: str(raw?.notes, 1000)
+  };
+}
+
 export class GameRoom extends DurableObject {
   constructor(ctx, env) {
     super(ctx, env);
@@ -95,6 +134,10 @@ export class GameRoom extends DurableObject {
       });
     }
 
+    if (url.pathname.endsWith('/character/create') && request.method === 'POST') {
+      return this.#handleCharacterCreate(request);
+    }
+
     if (url.pathname.endsWith('/character') && request.method === 'POST') {
       return this.#handleCharacterUpload(request);
     }
@@ -113,6 +156,22 @@ export class GameRoom extends DurableObject {
     const pair = new WebSocketPair();
     this.ctx.acceptWebSocket(pair[1]);
     return new Response(null, { status: 101, webSocket: pair[0] });
+  }
+
+  /** Build a character sheet directly from form fields — no AI call, no PDF needed. */
+  async #handleCharacterCreate(request) {
+    this.#ensureInitialized();
+    try {
+      const body = await request.json();
+      const playerName = str(body.playerName, 40) || 'Adventurer';
+      const sheet = sanitizeSheet(body.sheet, playerName);
+      this.state.characters[playerName] = sheet;
+      this.#persist();
+      this.#broadcast({ type: 'character-updated', playerName, sheet });
+      return Response.json({ ok: true, sheet });
+    } catch (err) {
+      return Response.json({ ok: false, error: errMsg(err) }, { status: 500 });
+    }
   }
 
   async #handleCharacterUpload(request) {
@@ -200,11 +259,14 @@ export class GameRoom extends DurableObject {
       this.#broadcast({ type: 'player-said', name: playerName, text: action });
 
       try {
-        const { narrative, rollResults, sfxRequests, mapOps, budgetExceeded } =
+        const { narrative, rollResults, sfxRequests, mapOps, characterUpdates, budgetExceeded } =
           await takeTurn(this.env, this.state, playerName, action);
         this.#persist();
         if (rollResults.length) this.#broadcast({ type: 'dice-rolled', rolls: rollResults });
         if (sfxRequests.length) this.#broadcast({ type: 'sfx-played', effects: sfxRequests });
+        for (const name of characterUpdates) {
+          this.#broadcast({ type: 'character-updated', playerName: name, sheet: this.state.characters[name] });
+        }
         this.#broadcast({ type: 'dm-said', text: narrative, budgetExceeded });
         if (mapOps.length) this.#broadcast({ type: 'map-ops', ops: mapOps });
       } catch (err) {

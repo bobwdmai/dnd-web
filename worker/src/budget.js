@@ -3,7 +3,7 @@
 // publicly-reachable, unauthenticated game.
 
 const TIME_ZONE = 'America/New_York';
-export const DAILY_NEURON_BUDGET = 8000; // leaves headroom under the 10,000/day free tier for other workers
+export const DAILY_NEURON_BUDGET = 1000; // matches ClearSpeak's conservative per-worker cap
 
 function localDateKey(date) {
   const formatter = new Intl.DateTimeFormat('en-US', {

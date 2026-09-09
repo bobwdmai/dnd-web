@@ -20,6 +20,12 @@ more than once in a turn — e.g. roll an attack, see whether it hits, then roll
 your narration. Never invent a die result yourself; always get the true result from the tool first, then
 narrate the outcome referencing the actual numbers where it matters.
 
+When a character's stats actually change — they take damage, get healed, gain or lose a stat from a
+spell/curse/potion, level up, or gain/lose an item — call update_character to make it stick on their
+sheet, not just in your narration. Always call it right after the roll that caused the change (e.g.
+after a damage roll resolves), using the exact character name from the party list below. Only include
+the fields that changed.
+
 Before you write your narration, always check: does this moment contain one of these? — a weapon or
 blow connecting, a door/lid/lock opening or closing, an explosion or fire, a spell or magical effect,
 a monster's growl/roar, coins or treasure, an arrow or thrown weapon in flight, water, thunder/storm, a
@@ -111,6 +117,38 @@ const SFX_TOOL = {
         effect: { type: 'string', enum: SFX_CATALOG, description: 'Which effect to play, matching the moment being narrated.' }
       },
       required: ['effect']
+    }
+  }
+};
+
+const UPDATE_CHARACTER_TOOL = {
+  type: 'function',
+  function: {
+    name: 'update_character',
+    description:
+      'Update a party member\'s character sheet when the story actually changes it — damage taken, ' +
+      'healing, a stat drain or buff, leveling up, or gaining/losing equipment. Only include the ' +
+      'fields that changed; leave the rest out.',
+    parameters: {
+      type: 'object',
+      properties: {
+        characterName: { type: 'string', description: 'Exact name of the character being updated, matching the party list.' },
+        hpCurrent: { type: 'number', description: 'New current HP, if it changed (e.g. after damage or healing).' },
+        hpMax: { type: 'number', description: 'New max HP, if it changed (e.g. leveling up, a curse).' },
+        armorClass: { type: 'number', description: 'New armor class, if it changed.' },
+        abilityScores: {
+          type: 'object',
+          description: 'Only the ability scores that changed.',
+          properties: {
+            STR: { type: 'number' }, DEX: { type: 'number' }, CON: { type: 'number' },
+            INT: { type: 'number' }, WIS: { type: 'number' }, CHA: { type: 'number' }
+          }
+        },
+        addEquipment: { type: 'array', items: { type: 'string' }, description: 'Item names gained.' },
+        removeEquipment: { type: 'array', items: { type: 'string' }, description: 'Item names lost, used up, or consumed.' },
+        reason: { type: 'string', description: 'Brief reason for the change, e.g. "took 8 slashing damage from the goblin".' }
+      },
+      required: ['characterName', 'reason']
     }
   }
 };
@@ -243,6 +281,18 @@ function extractStrayEffectMentions(text) {
   return { cleanText: cleaned.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim(), extraEffects };
 }
 
+/** Exact match first, then case-insensitive — the model doesn't always echo a name's exact casing. */
+function findCharacterName(characters, rawName) {
+  if (!rawName) return null;
+  if (characters[rawName]) return rawName;
+  const lower = String(rawName).toLowerCase();
+  return Object.keys(characters).find(k => k.toLowerCase() === lower) || null;
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
 function errMsg(err) {
   if (err instanceof Error) return err.message;
   try { return String(err); } catch { return 'unknown error'; }
@@ -258,13 +308,16 @@ async function runModel(env, messages, { tools, max_tokens } = {}) {
   return { message, neurons };
 }
 
-async function runNarrator(env, initialMessages) {
+async function runNarrator(env, state, initialMessages) {
   const messages = [...initialMessages];
   const rollResults = [];
   const sfxRequests = [];
+  const characterUpdates = new Set();
 
   for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
-    const { message } = await runModel(env, messages, { tools: [ROLL_TOOL, SFX_TOOL], max_tokens: NARRATOR_MAX_TOKENS });
+    const { message } = await runModel(env, messages, {
+      tools: [ROLL_TOOL, SFX_TOOL, UPDATE_CHARACTER_TOOL], max_tokens: NARRATOR_MAX_TOKENS
+    });
 
     if (Array.isArray(message.tool_calls) && message.tool_calls.length) {
       messages.push({ role: 'assistant', content: message.content || '', tool_calls: message.tool_calls });
@@ -284,6 +337,36 @@ async function runNarrator(env, initialMessages) {
           catch (err) { result = { label: args.label || 'Roll', formula: args.formula, error: errMsg(err) }; }
           rollResults.push(result);
           toolResponse = result.error ? { error: result.error } : { breakdown: result.breakdown, total: result.total, rolls: result.rolls };
+        } else if (name === 'update_character') {
+          const actualName = findCharacterName(state.characters, args.characterName);
+          if (!actualName) {
+            toolResponse = { error: `No character named "${args.characterName}"` };
+          } else {
+            const sheet = state.characters[actualName];
+            if (typeof args.hpMax === 'number') sheet.hp.max = Math.max(1, Math.round(args.hpMax));
+            if (typeof args.hpCurrent === 'number') sheet.hp.current = clamp(Math.round(args.hpCurrent), 0, sheet.hp.max);
+            if (typeof args.armorClass === 'number') sheet.armorClass = Math.round(args.armorClass);
+            if (args.abilityScores && typeof args.abilityScores === 'object') {
+              for (const [k, v] of Object.entries(args.abilityScores)) {
+                if (['STR', 'DEX', 'CON', 'INT', 'WIS', 'CHA'].includes(k) && typeof v === 'number') {
+                  sheet.abilityScores[k] = Math.round(v);
+                }
+              }
+            }
+            if (Array.isArray(args.addEquipment)) {
+              for (const item of args.addEquipment) {
+                if (typeof item === 'string' && item.trim() && !sheet.equipment.includes(item.trim())) {
+                  sheet.equipment.push(item.trim());
+                }
+              }
+            }
+            if (Array.isArray(args.removeEquipment)) {
+              const toRemove = args.removeEquipment.map(i => String(i).toLowerCase());
+              sheet.equipment = sheet.equipment.filter(i => !toRemove.includes(i.toLowerCase()));
+            }
+            characterUpdates.add(actualName);
+            toolResponse = { updated: true, hp: sheet.hp, armorClass: sheet.armorClass, abilityScores: sheet.abilityScores };
+          }
         } else {
           toolResponse = { error: `Unknown tool "${name}"` };
         }
@@ -293,10 +376,13 @@ async function runNarrator(env, initialMessages) {
       continue;
     }
 
-    return { narrative: message.content || '', rollResults, sfxRequests };
+    return { narrative: message.content || '', rollResults, sfxRequests, characterUpdates: [...characterUpdates] };
   }
 
-  return { narrative: "(The DM got tangled up using tools and couldn't finish that turn. Try again.)", rollResults, sfxRequests };
+  return {
+    narrative: "(The DM got tangled up using tools and couldn't finish that turn. Try again.)",
+    rollResults, sfxRequests, characterUpdates: [...characterUpdates]
+  };
 }
 
 /**
@@ -308,18 +394,19 @@ export async function takeTurn(env, state, playerName, actionText) {
   if (budget.exceeded) {
     return {
       narrative: "The DM is resting — today's AI usage budget for this free demo has been used up. Please try again tomorrow (Eastern time).",
-      rollResults: [], sfxRequests: [], mapOps: [], budgetExceeded: true
+      rollResults: [], sfxRequests: [], mapOps: [], characterUpdates: [], budgetExceeded: true
     };
   }
 
   state.history.push({ role: 'user', name: playerName, content: actionText, ts: new Date().toISOString() });
 
-  let rawNarrative = '', rollResults = [], sfxRequests = [];
+  let rawNarrative = '', rollResults = [], sfxRequests = [], characterUpdates = [];
   try {
-    const result = await runNarrator(env, buildMessages(state, playerName, actionText));
+    const result = await runNarrator(env, state, buildMessages(state, playerName, actionText));
     rawNarrative = result.narrative;
     rollResults = result.rollResults;
     sfxRequests = result.sfxRequests;
+    characterUpdates = result.characterUpdates;
   } catch (err) {
     rawNarrative = `(The DM stumbled: ${errMsg(err)})`;
   }
@@ -348,7 +435,7 @@ export async function takeTurn(env, state, playerName, actionText) {
     mapOps = []; // map generation is best-effort; a cartographer failure shouldn't fail the turn
   }
 
-  return { narrative, rollResults, sfxRequests, mapOps, budgetExceeded: false };
+  return { narrative, rollResults, sfxRequests, mapOps, characterUpdates, budgetExceeded: false };
 }
 
 const SHEET_SCHEMA_HINT = `{

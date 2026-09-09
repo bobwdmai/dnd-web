@@ -340,6 +340,73 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
     }
   });
 
+  // ================================================================
+  // Character sheet creation: build a sheet directly, no PDF or AI needed.
+  // ================================================================
+  const charTabUploadBtn = document.getElementById('dnd-char-tab-upload');
+  const charTabCreateBtn = document.getElementById('dnd-char-tab-create');
+  const createCharForm = document.getElementById('dnd-create-char-form');
+  const createCharStatus = document.getElementById('dnd-create-status');
+
+  function selectCharTab(which) {
+    charTabUploadBtn.classList.toggle('active', which === 'upload');
+    charTabCreateBtn.classList.toggle('active', which === 'create');
+    uploadForm.classList.toggle('dnd-hidden', which !== 'upload');
+    createCharForm.classList.toggle('dnd-hidden', which !== 'create');
+  }
+  charTabUploadBtn.addEventListener('click', () => selectCharTab('upload'));
+  charTabCreateBtn.addEventListener('click', () => selectCharTab('create'));
+
+  function splitList(value) {
+    return value.split(',').map(s => s.trim()).filter(Boolean);
+  }
+
+  createCharForm.addEventListener('submit', async e => {
+    e.preventDefault();
+    const name = document.getElementById('cc-name').value.trim() || playerName;
+    const hpMax = parseInt(document.getElementById('cc-hp').value, 10) || 10;
+    const sheet = {
+      name,
+      race: document.getElementById('cc-race').value.trim(),
+      class: document.getElementById('cc-class').value.trim(),
+      level: parseInt(document.getElementById('cc-level').value, 10) || 1,
+      background: document.getElementById('cc-background').value.trim(),
+      alignment: '',
+      abilityScores: {
+        STR: parseInt(document.getElementById('cc-str').value, 10) || 10,
+        DEX: parseInt(document.getElementById('cc-dex').value, 10) || 10,
+        CON: parseInt(document.getElementById('cc-con').value, 10) || 10,
+        INT: parseInt(document.getElementById('cc-int').value, 10) || 10,
+        WIS: parseInt(document.getElementById('cc-wis').value, 10) || 10,
+        CHA: parseInt(document.getElementById('cc-cha').value, 10) || 10
+      },
+      hp: { current: hpMax, max: hpMax },
+      armorClass: parseInt(document.getElementById('cc-ac').value, 10) || 10,
+      speed: 30,
+      proficiencyBonus: 2,
+      savingThrows: splitList(document.getElementById('cc-saves').value),
+      skills: splitList(document.getElementById('cc-skills').value),
+      equipment: splitList(document.getElementById('cc-equipment').value),
+      features: [],
+      spells: [],
+      notes: document.getElementById('cc-notes').value.trim()
+    };
+
+    createCharStatus.textContent = 'Creating…';
+    try {
+      const res = await fetch(`${WORKER_ORIGIN}/api/room/${encodeURIComponent(roomCode)}/character/create`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ playerName, sheet })
+      });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || 'Could not create character');
+      createCharStatus.textContent = `Created ${data.sheet.name}.`;
+      createCharForm.reset();
+    } catch (err) {
+      createCharStatus.textContent = `Error: ${err.message}`;
+    }
+  });
+
   function cssId(name) { return String(name).replace(/[^a-z0-9]/gi, '_'); }
 
   function renderSheet(name, sheet) {

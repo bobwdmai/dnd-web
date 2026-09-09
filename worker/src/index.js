@@ -97,6 +97,21 @@ async function handle(request, env) {
       return json(request, data, doResponse.status);
     }
 
+    // POST /api/room/:code/character/create { playerName, sheet } -> a manually-built character sheet
+    const charCreateMatch = url.pathname.match(/^\/api\/room\/([A-Za-z0-9]+)\/character\/create$/);
+    if (charCreateMatch && request.method === 'POST') {
+      const code = normalizeCode(charCreateMatch[1]);
+      const stub = env.GAME_ROOM.getByName(code);
+      const doRequest = new Request('https://do/character/create', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: request.body
+      });
+      const doResponse = await stub.fetch(doRequest);
+      const data = await doResponse.json();
+      return json(request, data, doResponse.status);
+    }
+
     // GET /api/room/:code (WebSocket upgrade) -> forward to the room's Durable Object
     const roomMatch = url.pathname.match(/^\/api\/room\/([A-Za-z0-9]+)$/);
     if (roomMatch) {

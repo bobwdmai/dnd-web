@@ -7,6 +7,9 @@ function freshState(campaign) {
     campaign: campaign || 'New Campaign',
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
+    ownerName: null, // set to whoever first joins; only they may end the game
+    ended: false,
+    endedAt: null,
     map: { lines: [], labels: [] },
     characters: {},
     history: []
@@ -85,7 +88,11 @@ export class GameRoom extends DurableObject {
       // A campaign param means "reserve this code": initialize the room now so a concurrent
       // create-room request sees it as taken instead of handing out the same fresh code twice.
       if (!wasInitialized && campaignParam) this.#ensureInitialized(campaignParam);
-      return Response.json({ initialized: wasInitialized, campaign: this.state?.campaign || null });
+      return Response.json({
+        initialized: wasInitialized,
+        campaign: this.state?.campaign || null,
+        ended: !!this.state?.ended
+      });
     }
 
     if (url.pathname.endsWith('/character') && request.method === 'POST') {
@@ -94,6 +101,10 @@ export class GameRoom extends DurableObject {
 
     if (request.headers.get('Upgrade') !== 'websocket') {
       return new Response('Expected a WebSocket upgrade or a known API route', { status: 400 });
+    }
+
+    if (this.state?.ended) {
+      return Response.json({ error: 'This game has already ended.' }, { status: 410 });
     }
 
     const campaign = url.searchParams.get('campaign') || undefined;
@@ -130,9 +141,18 @@ export class GameRoom extends DurableObject {
 
     this.#ensureInitialized();
 
+    if (this.state.ended) {
+      this.#send(ws, { type: 'error', error: 'This game has ended.' });
+      return;
+    }
+
     if (msg.type === 'join') {
       const name = String(msg.name || 'Adventurer').trim().slice(0, 40) || 'Adventurer';
       ws.serializeAttachment({ name });
+      if (!this.state.ownerName) {
+        this.state.ownerName = name; // first to join created the game and owns it
+        this.#persist();
+      }
       this.#send(ws, { type: 'state', state: this.state });
       this.#broadcast({ type: 'players', list: this.#playerList() });
       return;
@@ -140,6 +160,21 @@ export class GameRoom extends DurableObject {
 
     const attachment = ws.deserializeAttachment();
     const playerName = attachment?.name || 'Adventurer';
+
+    if (msg.type === 'end-game') {
+      if (playerName !== this.state.ownerName) {
+        this.#send(ws, { type: 'error', error: 'Only the game owner can end the game.' });
+        return;
+      }
+      this.state.ended = true;
+      this.state.endedAt = new Date().toISOString();
+      this.#persist();
+      this.#broadcast({ type: 'game-ended', endedBy: playerName });
+      for (const socket of this.ctx.getWebSockets()) {
+        try { socket.close(1000, 'Game ended'); } catch { /* already closing */ }
+      }
+      return;
+    }
 
     if (msg.type === 'chat') {
       const action = String(msg.text || '').trim().slice(0, 2000);

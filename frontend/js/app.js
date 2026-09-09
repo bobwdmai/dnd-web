@@ -39,12 +39,14 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
   const sheetsEl = document.getElementById('dnd-sheets');
 
   const sfxToggleBtn = document.getElementById('dnd-sfx-toggle');
+  const endGameBtn = document.getElementById('dnd-end-game-btn');
 
   // ---- State --------------------------------------------------------------
   let mapState = { lines: [], labels: [] };
   let playerName = '';
   let roomCode = '';
   let socket = null;
+  let gameEnded = false;
   const GRID = 12;
 
   // ================================================================
@@ -95,6 +97,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
       const res = await fetch(`${WORKER_ORIGIN}/api/room/${encodeURIComponent(code)}/status`);
       const data = await res.json();
       if (!data.initialized) throw new Error(`No game found with code "${code}".`);
+      if (data.ended) throw new Error('That game has already ended.');
       enterRoom(code, name);
     } catch (err) {
       setGateStatus(err.message, true);
@@ -133,6 +136,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
     });
 
     socket.addEventListener('close', () => {
+      if (gameEnded) return; // expected close after End Game — don't reconnect or alarm anyone
       appendMsg({ text: 'Disconnected from the game. Reconnecting…', cls: 'dnd-system' });
       setTimeout(() => { if (roomCode) connectSocket(); }, 2000);
     });
@@ -143,6 +147,11 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
   function send(payload) {
     if (socket && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(payload));
   }
+
+  endGameBtn.addEventListener('click', () => {
+    if (!confirm('End this game for everyone? The room will close and no one will be able to rejoin with this code.')) return;
+    send({ type: 'end-game' });
+  });
 
   function handleServerMessage(msg) {
     switch (msg.type) {
@@ -158,8 +167,16 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
         }
         sheetsEl.innerHTML = '';
         for (const [name, sheet] of Object.entries(msg.state.characters || {})) renderSheet(name, sheet);
+        endGameBtn.classList.toggle('dnd-hidden', msg.state.ownerName !== playerName);
         break;
       }
+      case 'game-ended':
+        gameEnded = true;
+        appendMsg({ text: `🏁 ${msg.endedBy} ended the game. This room is now closed — thanks for playing!`, cls: 'dnd-system' });
+        chatInput.disabled = true;
+        chatForm.querySelector('button').disabled = true;
+        endGameBtn.disabled = true;
+        break;
       case 'players':
         playersListEl.textContent = msg.list.length ? msg.list.join(', ') : '—';
         break;
@@ -188,7 +205,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
         renderSheet(msg.playerName, msg.sheet);
         break;
       case 'error':
-        appendMsg({ text: `The DM stumbled: ${msg.error}`, cls: 'dnd-error' });
+        appendMsg({ text: msg.error, cls: 'dnd-error' });
         break;
     }
   }

@@ -93,6 +93,9 @@
 .dnd-topbar-actions { display: flex; gap: 8px; }
 #dnd-sfx-toggle.active { background: var(--dnd-accent-dim); border-color: var(--dnd-accent); }
 #dnd-sfx-toggle:not(.active) { opacity: 0.5; }
+.dnd-danger-btn { border-color: var(--dnd-danger); color: var(--dnd-danger); }
+.dnd-danger-btn:hover { background: var(--dnd-danger); color: #fff; }
+.dnd-danger-btn:disabled { opacity: 0.4; }
 
 .dnd-layout {
   flex: 1;

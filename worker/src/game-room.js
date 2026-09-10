@@ -1,6 +1,11 @@
 import { DurableObject } from 'cloudflare:workers';
-import { takeTurn, formatCharacterSheet } from './dm.js';
+import { takeTurn, formatCharacterSheet, findCharacterName } from './dm.js';
 import * as dice from './dice.js';
+
+/** Case/whitespace-insensitive identity check — "Bob" and "bob" are the same player. */
+function sameName(a, b) {
+  return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+}
 
 function freshState(campaign) {
   return {
@@ -165,9 +170,12 @@ export class GameRoom extends DurableObject {
       const body = await request.json();
       const playerName = str(body.playerName, 40) || 'Adventurer';
       const sheet = sanitizeSheet(body.sheet, playerName);
-      this.state.characters[playerName] = sheet;
+      // Reuse an existing character stored under a differently-cased/spaced version of this
+      // name (e.g. "Bob" vs "bob" on reconnect) instead of creating a stray duplicate.
+      const key = findCharacterName(this.state.characters, playerName) || playerName;
+      this.state.characters[key] = sheet;
       this.#persist();
-      this.#broadcast({ type: 'character-updated', playerName, sheet });
+      this.#broadcast({ type: 'character-updated', playerName: key, sheet });
       return Response.json({ ok: true, sheet });
     } catch (err) {
       return Response.json({ ok: false, error: errMsg(err) }, { status: 500 });
@@ -183,9 +191,12 @@ export class GameRoom extends DurableObject {
       if (!text.trim()) return Response.json({ ok: false, error: 'No text extracted from that PDF.' }, { status: 422 });
 
       const sheet = await formatCharacterSheet(this.env, text, playerName);
-      this.state.characters[playerName] = sheet;
+      // Reuse an existing character stored under a differently-cased/spaced version of this
+      // name (e.g. "Bob" vs "bob" on reconnect) instead of creating a stray duplicate.
+      const key = findCharacterName(this.state.characters, playerName) || playerName;
+      this.state.characters[key] = sheet;
       this.#persist();
-      this.#broadcast({ type: 'character-updated', playerName, sheet });
+      this.#broadcast({ type: 'character-updated', playerName: key, sheet });
       return Response.json({ ok: true, sheet });
     } catch (err) {
       return Response.json({ ok: false, error: errMsg(err) }, { status: 500 });
@@ -211,6 +222,11 @@ export class GameRoom extends DurableObject {
       if (!this.state.ownerName) {
         this.state.ownerName = name; // first to join created the game and owns it
         this.#persist();
+      } else if (sameName(name, this.state.ownerName) && name !== this.state.ownerName) {
+        // Same player reconnecting with different capitalization/whitespace than last time —
+        // keep recognizing them as owner rather than silently losing that status.
+        this.state.ownerName = name;
+        this.#persist();
       }
       this.#send(ws, { type: 'state', state: this.state });
       this.#broadcast({ type: 'players', list: this.#playerList() });
@@ -221,7 +237,7 @@ export class GameRoom extends DurableObject {
     const playerName = attachment?.name || 'Adventurer';
 
     if (msg.type === 'end-game') {
-      if (playerName !== this.state.ownerName) {
+      if (!sameName(playerName, this.state.ownerName)) {
         this.#send(ws, { type: 'error', error: 'Only the game owner can end the game.' });
         return;
       }

@@ -282,7 +282,7 @@ function extractStrayEffectMentions(text) {
 }
 
 /** Exact match first, then case-insensitive — the model doesn't always echo a name's exact casing. */
-function findCharacterName(characters, rawName) {
+export function findCharacterName(characters, rawName) {
   if (!rawName) return null;
   if (characters[rawName]) return rawName;
   const lower = String(rawName).toLowerCase();

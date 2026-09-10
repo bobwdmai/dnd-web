@@ -3,7 +3,8 @@
 // publicly-reachable, unauthenticated game.
 
 const TIME_ZONE = 'America/New_York';
-export const DAILY_NEURON_BUDGET = 8000; // temporarily raised — remember to drop this back to 1000
+const WEEKDAY_BUDGET = 8000; // Mon-Fri
+const WEEKEND_BUDGET = 1000; // Sat-Sun
 
 function localDateKey(date) {
   const formatter = new Intl.DateTimeFormat('en-US', {
@@ -13,11 +14,19 @@ function localDateKey(date) {
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
+/** Mon-Fri get the higher weekday budget; Sat/Sun drop to the weekend budget. */
+function dailyBudgetLimit(date) {
+  const weekday = new Intl.DateTimeFormat('en-US', { timeZone: TIME_ZONE, weekday: 'short' }).format(date);
+  return (weekday === 'Sat' || weekday === 'Sun') ? WEEKEND_BUDGET : WEEKDAY_BUDGET;
+}
+
 /** Returns { used, limit, exceeded }. Read-only — does not spend anything. */
 export async function getBudgetStatus(env) {
-  const key = `budget:${localDateKey(new Date())}`;
+  const now = new Date();
+  const key = `budget:${localDateKey(now)}`;
+  const limit = dailyBudgetLimit(now);
   const used = Number((await env.ROOM_BUDGET.get(key)) || 0);
-  return { used, limit: DAILY_NEURON_BUDGET, exceeded: used >= DAILY_NEURON_BUDGET };
+  return { used, limit, exceeded: used >= limit };
 }
 
 /**

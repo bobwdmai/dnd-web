@@ -7,9 +7,10 @@ function sameName(a, b) {
   return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
 }
 
-function freshState(campaign) {
+function freshState(campaign, roomCode) {
   return {
     campaign: campaign || 'New Campaign',
+    roomCode: roomCode || null, // so this room can update its own entry in the room registry
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     ownerName: null, // set to whoever first joins; only they may end the game
@@ -92,9 +93,17 @@ export class GameRoom extends DurableObject {
     );
   }
 
-  #ensureInitialized(campaign) {
+  /** Update this room's entry in the KV registry (used by the local-only admin script). */
+  async #updateRegistry(patch) {
+    if (!this.state?.roomCode) return;
+    await this.env.ROOM_REGISTRY.put(`room:${this.state.roomCode}`, '', {
+      metadata: { campaign: this.state.campaign, createdAt: this.state.createdAt, ended: false, ...patch }
+    });
+  }
+
+  #ensureInitialized(campaign, roomCode) {
     if (!this.state) {
-      this.state = freshState(campaign);
+      this.state = freshState(campaign, roomCode);
       this.#persist();
     }
   }
@@ -129,14 +138,26 @@ export class GameRoom extends DurableObject {
     if (url.pathname.endsWith('/status')) {
       const wasInitialized = !!this.state;
       const campaignParam = url.searchParams.get('campaign');
+      const codeParam = url.searchParams.get('code');
       // A campaign param means "reserve this code": initialize the room now so a concurrent
       // create-room request sees it as taken instead of handing out the same fresh code twice.
-      if (!wasInitialized && campaignParam) this.#ensureInitialized(campaignParam);
+      if (!wasInitialized && campaignParam) this.#ensureInitialized(campaignParam, codeParam);
       return Response.json({
         initialized: wasInitialized,
         campaign: this.state?.campaign || null,
         ended: !!this.state?.ended
       });
+    }
+
+    if (url.pathname.endsWith('/delete') && request.method === 'DELETE') {
+      const roomCode = this.state?.roomCode;
+      for (const ws of this.ctx.getWebSockets()) {
+        try { ws.close(1000, 'Room deleted'); } catch { /* already closing */ }
+      }
+      await this.ctx.storage.deleteAll();
+      this.state = null;
+      if (roomCode) await this.env.ROOM_REGISTRY.delete(`room:${roomCode}`);
+      return Response.json({ ok: true, deleted: roomCode || null });
     }
 
     if (url.pathname.endsWith('/character/create') && request.method === 'POST') {
@@ -244,6 +265,7 @@ export class GameRoom extends DurableObject {
       this.state.ended = true;
       this.state.endedAt = new Date().toISOString();
       this.#persist();
+      await this.#updateRegistry({ ended: true, endedAt: this.state.endedAt });
       this.#broadcast({ type: 'game-ended', endedBy: playerName });
       for (const socket of this.ctx.getWebSockets()) {
         try { socket.close(1000, 'Game ended'); } catch { /* already closing */ }

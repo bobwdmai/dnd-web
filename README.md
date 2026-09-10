@@ -45,9 +45,28 @@ server to run and no API keys shipped to the browser.
 ```sh
 cd worker
 npm install
-npx wrangler kv namespace create ROOM_BUDGET   # then put its id in wrangler.jsonc
+npx wrangler kv namespace create ROOM_BUDGET     # then put its id in wrangler.jsonc
+npx wrangler kv namespace create ROOM_REGISTRY   # then put its id in wrangler.jsonc
+echo -n "$(openssl rand -base64 32)" > .admin-secret   # gitignored, local-only
+npx wrangler secret put ADMIN_SECRET < .admin-secret
 npx wrangler deploy
 ```
+
+## Admin: checking and deleting rooms
+
+There's no public "list rooms" feature by design — Durable Objects aren't enumerable, and exposing
+room counts or deletion to the internet would be an abuse vector. Instead, `worker/src/index.js` has
+two routes gated by a secret (`ADMIN_SECRET`, set above) that only exists in the gitignored
+`worker/.admin-secret` file on whatever machine you put it on:
+
+```sh
+cd worker
+node scripts/admin.js stats            # how many rooms exist, live vs. ended, with campaign names
+node scripts/admin.js delete <CODE>    # wipe a room's storage and free up its code for reuse
+```
+
+The script reads the secret from `.admin-secret` next to it, so it only works on a machine where
+that file exists — copy it there (never commit it) to use the script elsewhere.
 
 ## Embed the frontend
 

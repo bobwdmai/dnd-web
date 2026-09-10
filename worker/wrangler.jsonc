@@ -8,7 +8,8 @@
   ],
   "ai": { "binding": "AI" },
   "kv_namespaces": [
-    { "binding": "ROOM_BUDGET", "id": "ba3dc0955538477383e9e1d5a2d7ec95" }
+    { "binding": "ROOM_BUDGET", "id": "ba3dc0955538477383e9e1d5a2d7ec95" },
+    { "binding": "ROOM_REGISTRY", "id": "cd107b3f20294abb85ad6ec275e5ae1f" }
   ],
   "durable_objects": {
     "bindings": [

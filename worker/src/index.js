@@ -32,6 +32,13 @@ function normalizeCode(code) {
   return String(code || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
 }
 
+/** Admin routes (room stats, room deletion) are gated by a secret set via `wrangler secret put
+ *  ADMIN_SECRET`, kept only in a local gitignored file — never public, never in git. */
+function isAdmin(request, env) {
+  const provided = request.headers.get('x-admin-secret') || '';
+  return !!env.ADMIN_SECRET && provided === env.ADMIN_SECRET;
+}
+
 export default {
   async fetch(request, env) {
     try {
@@ -65,12 +72,41 @@ async function handle(request, env) {
         const status = await stub.fetch('https://do/status').then(r => r.json());
         if (!status.initialized) {
           // Touch the room so it's marked initialized immediately (avoids a race where two
-          // creators are handed the same fresh code before either connects).
-          await stub.fetch(`https://do/status?campaign=${encodeURIComponent(campaign)}`);
+          // creators are handed the same fresh code before either connects), and tell it its
+          // own code so it can update the room registry when it ends.
+          await stub.fetch(`https://do/status?campaign=${encodeURIComponent(campaign)}&code=${code}`);
+          const createdAt = new Date().toISOString();
+          await env.ROOM_REGISTRY.put(`room:${code}`, '', { metadata: { campaign, createdAt, ended: false } });
           return json(request, { code, campaign });
         }
       }
       return json(request, { error: 'Could not allocate a room code, try again.' }, 500);
+    }
+
+    // -- Admin routes: secret-gated, used only by the local admin script -------------------
+
+    if (url.pathname === '/api/admin/rooms' && request.method === 'GET') {
+      if (!isAdmin(request, env)) return json(request, { error: 'Unauthorized' }, 401);
+      const list = await env.ROOM_REGISTRY.list({ prefix: 'room:' });
+      const rooms = list.keys.map(k => ({ code: k.name.slice(5), ...k.metadata }));
+      const live = rooms.filter(r => !r.ended);
+      return json(request, {
+        totalCreated: rooms.length,
+        live: live.length,
+        ended: rooms.length - live.length,
+        liveRooms: live
+      });
+    }
+
+    const adminDeleteMatch = url.pathname.match(/^\/api\/admin\/room\/([A-Za-z0-9]+)$/);
+    if (adminDeleteMatch && request.method === 'DELETE') {
+      if (!isAdmin(request, env)) return json(request, { error: 'Unauthorized' }, 401);
+      const code = normalizeCode(adminDeleteMatch[1]);
+      const stub = env.GAME_ROOM.getByName(code);
+      const doResponse = await stub.fetch('https://do/delete', { method: 'DELETE' });
+      const data = await doResponse.json();
+      await env.ROOM_REGISTRY.delete(`room:${code}`); // belt-and-suspenders in case the DO never registered
+      return json(request, data, doResponse.status);
     }
 
     // GET /api/room/:code/status -> whether a room exists (used before joining)

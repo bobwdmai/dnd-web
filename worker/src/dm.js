@@ -5,7 +5,7 @@ import { spendNeurons, getBudgetStatus } from './budget.js';
 const MODEL = '@cf/openai/gpt-oss-20b';
 const MAX_TOOL_ITERATIONS = 8;
 const NARRATOR_MAX_TOKENS = 900;
-const MAP_MAX_TOKENS = 500;
+const MAP_MAX_TOKENS = 1600; // gpt-oss's hidden reasoning can otherwise eat the whole budget before any [MAP] text comes out
 
 const SYSTEM_PROMPT = `You are the Dungeon Master for a text-based Dungeons & Dragons 5th edition game.
 Run the world, describe scenes vividly but concisely (2-5 short paragraphs max), voice NPCs, adjudicate
@@ -56,8 +56,17 @@ label x,y Some Label
 [/MAP]
 
 Rules:
-- "draw" lines are simple straight wall/edge segments — sketch rooms and corridors as a floor plan
-  made of line segments (like walls seen from above), not fancy shapes or curves.
+- Work fast and simple: pick round integer coordinates directly by eye (e.g. multiples of 5) and
+  move on. Never compute trigonometry, angles, or circle/curve approximations — always approximate
+  every room as a plain rectangle, regardless of how the DM described its shape (a "circular
+  chamber" is just a rectangle of 4 lines here). Keep your reasoning to one or two short sentences —
+  do not deliberate over alternatives, line budgets, or how to best represent something; just pick
+  the simplest option immediately and move on.
+- Draw ONLY structural boundaries: a room's outer walls (a rectangle: 4 lines) and corridors/doorways
+  connecting to it (1-2 lines each). That is the entire scope of this job. Never attempt to represent
+  decorative or small-scale details — pillars, statues, furniture, mosaics, rubble, altars, ceiling
+  features, etc. — as lines; skip them entirely (the DM's narration already covers them; the map is
+  just the floor plan). A typical turn is 0-8 lines total, rarely more.
 - Reuse and extend the existing map's coordinates when the new area connects to it (e.g. a corridor
   continuing from an existing doorway) so the map stays spatially consistent turn to turn.
 - Start the block with a line containing only "clear" if, and only if, the party has moved somewhere
@@ -251,15 +260,24 @@ function resolveEffectName(raw) {
  *  the tool's name, a fenced code block of pseudo-JSON, or a bolded pseudo-heading. Real DM
  *  narration never legitimately needs any of these, so strip all three wholesale. */
 function stripToolMentions(text) {
-  return text
+  const cleaned = text
     .replace(/```[\s\S]*?```/g, '') // fenced code blocks (e.g. a leaked {"effect": "..."} blob)
     .split('\n')
-    .filter(line =>
-      !/play_sound_effect|roll_dice/i.test(line) &&
-      !/^\*{0,2}(play\s+)?(sound\s+effect|dice\s+roll)s?\s*:?\*{0,2}$/i.test(line.trim()))
+    .filter(line => {
+      const trimmed = line.trim();
+      if (/play_sound_effect|roll_dice/i.test(trimmed)) return false;
+      if (/^\*{0,2}(play\s+)?(sound\s+effect|dice\s+roll)s?\s*:?\*{0,2}$/i.test(trimmed)) return false;
+      // A bare JSON object/array line (e.g. `{"effect":"door_creak"}`) is never real narration —
+      // it's the model writing tool-call arguments directly instead of actually calling the tool.
+      if (/^[{[][\s\S]*[}\]]$/.test(trimmed)) {
+        try { JSON.parse(trimmed); return false; } catch { /* not actually JSON, keep the line */ }
+      }
+      return true;
+    })
     .join('\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+  return cleaned;
 }
 
 /**
@@ -412,7 +430,10 @@ export async function takeTurn(env, state, playerName, actionText) {
   }
 
   const stripped = stripToolMentions(parseMapBlock(rawNarrative).narrative);
-  const { cleanText: narrative, extraEffects } = extractStrayEffectMentions(stripped);
+  const { cleanText, extraEffects } = extractStrayEffectMentions(stripped);
+  // If stripping left nothing (the model's whole reply was a leaked tool-call artifact), show a
+  // brief placeholder rather than a blank chat bubble — never make up story content here.
+  const narrative = cleanText || "(The DM pauses for a moment, gathering their thoughts...)";
   if (extraEffects.length) sfxRequests.push(...extraEffects);
 
   if (rollResults.length) {

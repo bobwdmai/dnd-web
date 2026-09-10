@@ -92,6 +92,15 @@ html[data-theme="dark"] .dnd-app {
 .dnd-gate-status { font-size: 0.8rem; color: var(--dnd-text-dim); margin-top: 14px; min-height: 1.2em; }
 .dnd-gate-status.dnd-error { color: var(--dnd-danger); }
 
+.dnd-back-link {
+  color: var(--dnd-text-dim);
+  font-size: 0.8rem;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.dnd-back-link:hover { color: var(--dnd-accent); text-decoration: underline; }
+.dnd-gate .dnd-back-link { position: fixed; top: 16px; left: 16px; }
+
 /* App shell */
 .dnd-topbar {
   display: flex; align-items: center; gap: 16px;

@@ -2,7 +2,7 @@ import * as dice from './dice.js';
 import { parseMapBlock, applyOps } from './map-commands.js';
 import { spendNeurons, getBudgetStatus } from './budget.js';
 
-const MODEL = '@cf/openai/gpt-oss-20b';
+const MODEL = '@cf/ibm-granite/granite-4.0-h-micro';
 const MAX_TOOL_ITERATIONS = 8;
 const NARRATOR_MAX_TOKENS = 900;
 const MAP_MAX_TOKENS = 1600; // gpt-oss's hidden reasoning can otherwise eat the whole budget before any [MAP] text comes out
@@ -230,7 +230,14 @@ function buildMapMessages(state, narrativeText) {
 function parseToolArgs(raw) {
   if (raw == null) return {};
   if (typeof raw === 'object') return raw;
-  try { return JSON.parse(raw); } catch { return {}; }
+  let parsed;
+  try { parsed = JSON.parse(raw); } catch { return {}; }
+  // Some models (e.g. granite-4.0-h-micro) double-encode: the arguments string, once parsed,
+  // is itself still a JSON string rather than an object — parse once more in that case.
+  if (typeof parsed === 'string') {
+    try { parsed = JSON.parse(parsed); } catch { return {}; }
+  }
+  return (parsed && typeof parsed === 'object') ? parsed : {};
 }
 
 function tokenize(name) {

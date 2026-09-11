@@ -290,10 +290,6 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
 
   function drawMap() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.strokeStyle = '#241f1a';
-    ctx.lineWidth = 1;
-    for (let gx = 0; gx <= canvas.width; gx += GRID) { ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, canvas.height); ctx.stroke(); }
-    for (let gy = 0; gy <= canvas.height; gy += GRID) { ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(canvas.width, gy); ctx.stroke(); }
 
     const origin = toPixel(0, 0);
     ctx.strokeStyle = '#3a3229';

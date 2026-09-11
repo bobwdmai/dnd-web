@@ -2,10 +2,14 @@ import * as dice from './dice.js';
 import { parseMapBlock, applyOps } from './map-commands.js';
 import { spendNeurons, getBudgetStatus } from './budget.js';
 
-const MODEL = '@cf/ibm-granite/granite-4.0-h-micro';
+// Hybrid: a real model for the actual storytelling (vibe and remembering the campaign matter
+// there), a cheap one for mechanical tasks (turning narration into map lines, turning PDF text
+// into JSON) where quality matters far less and cost adds up faster (one extra call every turn).
+const NARRATOR_MODEL = '@cf/openai/gpt-oss-20b';
+const CHEAP_MODEL = '@cf/ibm-granite/granite-4.0-h-micro';
 const MAX_TOOL_ITERATIONS = 8;
 const NARRATOR_MAX_TOKENS = 900;
-const MAP_MAX_TOKENS = 1600; // gpt-oss's hidden reasoning can otherwise eat the whole budget before any [MAP] text comes out
+const MAP_MAX_TOKENS = 500; // granite has no hidden-reasoning channel, so it needs far less headroom than gpt-oss did here
 
 const SYSTEM_PROMPT = `You are the Dungeon Master for a text-based Dungeons & Dragons 5th edition game.
 Run the world, describe scenes vividly but concisely (2-5 short paragraphs max), voice NPCs, adjudicate
@@ -324,8 +328,8 @@ function errMsg(err) {
 }
 
 /** Thin wrapper around env.AI.run that unpacks the OpenAI-shaped response and tracks neuron spend. */
-async function runModel(env, messages, { tools, max_tokens } = {}) {
-  const result = await env.AI.run(MODEL, { messages, tools, max_tokens: max_tokens || 512 });
+async function runModel(env, model, messages, { tools, max_tokens } = {}) {
+  const result = await env.AI.run(model, { messages, tools, max_tokens: max_tokens || 512 });
   const message = result?.choices?.[0]?.message;
   if (!message) throw new Error('Workers AI returned an unexpected response shape.');
   const neurons = result?.usage?.neurons || 0;
@@ -340,7 +344,7 @@ async function runNarrator(env, state, initialMessages) {
   const characterUpdates = new Set();
 
   for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
-    const { message } = await runModel(env, messages, {
+    const { message } = await runModel(env, NARRATOR_MODEL, messages, {
       tools: [ROLL_TOOL, SFX_TOOL, UPDATE_CHARACTER_TOOL], max_tokens: NARRATOR_MAX_TOKENS
     });
 
@@ -454,7 +458,7 @@ export async function takeTurn(env, state, playerName, actionText) {
 
   let mapOps = [];
   try {
-    const { message } = await runModel(env, buildMapMessages(state, narrative), { max_tokens: MAP_MAX_TOKENS });
+    const { message } = await runModel(env, CHEAP_MODEL, buildMapMessages(state, narrative), { max_tokens: MAP_MAX_TOKENS });
     const rawMap = message.content || '';
     const wrapped = rawMap.includes('[MAP]') ? rawMap : `[MAP]\n${rawMap}\n[/MAP]`;
     const parsedOps = parseMapBlock(wrapped).ops;
@@ -500,7 +504,7 @@ export async function formatCharacterSheet(env, rawText, playerName) {
     { role: 'user', content: `Player name (if the sheet doesn't state one, use this): ${playerName}\n\nExtracted PDF text:\n${trimmed}` }
   ];
 
-  const { message } = await runModel(env, messages, { max_tokens: 900 });
+  const { message } = await runModel(env, CHEAP_MODEL, messages, { max_tokens: 900 });
   const jsonText = extractJson(message.content || '');
   let parsed;
   try { parsed = JSON.parse(jsonText); }

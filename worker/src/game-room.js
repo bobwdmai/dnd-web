@@ -168,6 +168,11 @@ export class GameRoom extends DurableObject {
       return this.#handleCharacterUpload(request);
     }
 
+    const deleteMatch = url.pathname.match(/^\/character\/(.+)$/);
+    if (deleteMatch && request.method === 'DELETE') {
+      return this.#handleCharacterDelete(decodeURIComponent(deleteMatch[1]));
+    }
+
     if (request.headers.get('Upgrade') !== 'websocket') {
       return new Response('Expected a WebSocket upgrade or a known API route', { status: 400 });
     }
@@ -225,6 +230,18 @@ export class GameRoom extends DurableObject {
     } catch (err) {
       return Response.json({ ok: false, error: errMsg(err) }, { status: 500 });
     }
+  }
+
+  /** Remove a character sheet (case-insensitive name match) — anyone in the room can do this,
+   *  same trust model as the rest of this unauthenticated demo. */
+  #handleCharacterDelete(rawName) {
+    this.#ensureInitialized();
+    const key = findCharacterName(this.state.characters, rawName);
+    if (!key) return Response.json({ ok: false, error: `No character named "${rawName}"` }, { status: 404 });
+    delete this.state.characters[key];
+    this.#persist();
+    this.#broadcast({ type: 'character-removed', playerName: key });
+    return Response.json({ ok: true });
   }
 
   // -- WebSocket message handling (Hibernation API) ----------------------------------------

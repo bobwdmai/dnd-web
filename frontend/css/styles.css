@@ -164,6 +164,7 @@ html[data-theme="dark"] .dnd-app {
 
 .dnd-sheets { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
 .dnd-sheet-card { background: var(--dnd-bg-elev); border: 1px solid var(--dnd-border); border-radius: 8px; padding: 10px 12px; font-size: 0.85rem; }
+.dnd-sheet-card .dnd-sheet-remove { float: right; font-size: 0.7rem; padding: 2px 8px; }
 .dnd-sheet-card h3 { margin: 0 0 4px; color: var(--dnd-accent); font-size: 1rem; }
 .dnd-sheet-card .dnd-meta { color: var(--dnd-text-dim); margin-bottom: 6px; }
 .dnd-sheet-card .dnd-abilities { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; text-align: center; margin-bottom: 6px; }

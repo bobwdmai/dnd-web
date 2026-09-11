@@ -204,6 +204,11 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
       case 'character-updated':
         renderSheet(msg.playerName, msg.sheet);
         break;
+      case 'character-removed': {
+        const el = document.getElementById(`dnd-sheet-${cssId(msg.playerName)}`);
+        if (el) el.remove();
+        break;
+      }
       case 'error':
         appendMsg({ text: msg.error, cls: 'dnd-error' });
         break;
@@ -421,6 +426,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
     const ab = sheet.abilityScores || {};
     const abilityOrder = ['STR', 'DEX', 'CON', 'INT', 'WIS', 'CHA'];
     card.innerHTML = `
+      <button type="button" class="dnd-sheet-remove" title="Remove this character">✕</button>
       <h3>${escapeHtml(sheet.name || name)}</h3>
       <div class="dnd-meta">Level ${escapeHtml(sheet.level ?? '?')} ${escapeHtml(sheet.race || '')} ${escapeHtml(sheet.class || '')} · HP ${escapeHtml(sheet.hp?.current ?? '?')}/${escapeHtml(sheet.hp?.max ?? '?')} · AC ${escapeHtml(sheet.armorClass ?? '?')}</div>
       <div class="dnd-abilities">${abilityOrder.map(k => `<div>${ab[k] ?? '-'}<small>${k}</small></div>`).join('')}</div>
@@ -431,6 +437,9 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
         <p><strong>Spells:</strong> ${escapeHtml((sheet.spells || []).join(', ') || '—')}</p>
         <p><strong>Notes:</strong> ${escapeHtml(sheet.notes || '—')}</p>
       </details>`;
+    card.querySelector('.dnd-sheet-remove').addEventListener('click', async () => {
+      await fetch(`${WORKER_ORIGIN}/api/room/${encodeURIComponent(roomCode)}/character/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    });
   }
 
   function escapeHtml(v) {

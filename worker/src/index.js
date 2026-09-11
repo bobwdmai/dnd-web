@@ -16,7 +16,7 @@ function generateRoomCode() {
 function corsHeaders(request) {
   const origin = request.headers.get('origin');
   const headers = {
-    'access-control-allow-methods': 'GET, POST, OPTIONS',
+    'access-control-allow-methods': 'GET, POST, DELETE, OPTIONS',
     'access-control-allow-headers': 'content-type',
     vary: 'origin'
   };
@@ -144,6 +144,16 @@ async function handle(request, env) {
         body: request.body
       });
       const doResponse = await stub.fetch(doRequest);
+      const data = await doResponse.json();
+      return json(request, data, doResponse.status);
+    }
+
+    // DELETE /api/room/:code/character/:playerName -> remove one character sheet
+    const charDeleteMatch = url.pathname.match(/^\/api\/room\/([A-Za-z0-9]+)\/character\/([^/]+)$/);
+    if (charDeleteMatch && request.method === 'DELETE') {
+      const code = normalizeCode(charDeleteMatch[1]);
+      const stub = env.GAME_ROOM.getByName(code);
+      const doResponse = await stub.fetch(`https://do/character/${charDeleteMatch[2]}`, { method: 'DELETE' });
       const data = await doResponse.json();
       return json(request, data, doResponse.status);
     }

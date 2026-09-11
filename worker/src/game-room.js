@@ -211,7 +211,10 @@ export class GameRoom extends DurableObject {
       const text = String(body.text || '');
       if (!text.trim()) return Response.json({ ok: false, error: 'No text extracted from that PDF.' }, { status: 422 });
 
-      const sheet = await formatCharacterSheet(this.env, text, playerName);
+      // Same bounds-checking as the manual-creation path — the AI's JSON is a plausible D&D
+      // sheet almost always, but nothing stops a bad response from carrying a 0 max HP or an
+      // out-of-range ability score straight into persisted state without this.
+      const sheet = sanitizeSheet(await formatCharacterSheet(this.env, text, playerName), playerName);
       // Reuse an existing character stored under a differently-cased/spaced version of this
       // name (e.g. "Bob" vs "bob" on reconnect) instead of creating a stray duplicate.
       const key = findCharacterName(this.state.characters, playerName) || playerName;

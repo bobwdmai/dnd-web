@@ -160,6 +160,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
         mapState = msg.state.map || { lines: [], labels: [] };
         drawMap();
         log.innerHTML = '';
+        pendingTurns = 0; // a fresh log means any earlier "thinking" indicator no longer applies
         for (const h of msg.state.history || []) {
           if (h.role === 'dm') appendMsg({ who: 'DM', text: h.content, cls: 'dnd-dm' });
           else if (h.role === 'roll') appendRoll(h.results || [{ label: h.name, breakdown: h.content }]);
@@ -184,6 +185,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
         appendMsg({ who: msg.name, text: msg.text, cls: 'dnd-player' });
         break;
       case 'dm-said':
+        hideThinking();
         appendMsg({ who: 'DM', text: msg.text, cls: 'dnd-dm' });
         if (msg.budgetExceeded) appendMsg({ text: "(This free demo's daily AI budget is used up — the DM will be back tomorrow.)", cls: 'dnd-system' });
         break;
@@ -210,6 +212,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
         break;
       }
       case 'error':
+        hideThinking();
         appendMsg({ text: msg.error, cls: 'dnd-error' });
         break;
     }
@@ -235,6 +238,26 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
     log.scrollTop = log.scrollHeight;
   }
 
+  // Turns can take 10-40s (a real narrator call, sometimes a tool-call round-trip or two), so
+  // without this a player has no feedback that anything is happening after they hit Send.
+  let pendingTurns = 0;
+  function showThinking() {
+    pendingTurns++;
+    if (document.getElementById('dnd-thinking')) return;
+    const div = document.createElement('div');
+    div.id = 'dnd-thinking';
+    div.className = 'dnd-msg dnd-system';
+    div.textContent = 'The DM is thinking…';
+    log.appendChild(div);
+    log.scrollTop = log.scrollHeight;
+  }
+  function hideThinking() {
+    pendingTurns = Math.max(0, pendingTurns - 1);
+    if (pendingTurns > 0) return;
+    const el = document.getElementById('dnd-thinking');
+    if (el) el.remove();
+  }
+
   function appendRoll(rolls) {
     const div = document.createElement('div');
     div.className = 'dnd-msg dnd-roll';
@@ -254,6 +277,9 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
     if (!text) return;
     send({ type: 'chat', text });
     chatInput.value = '';
+    // /roll is a shortcut the server resolves instantly (no narrator call) — only show the
+    // "thinking" indicator for real turns, which can take a while.
+    if (!/^\/roll\s+/i.test(text)) showThinking();
   });
 
   // ================================================================

@@ -13,7 +13,9 @@ function rollDie(sides) {
 }
 
 function parseFormula(formula) {
-  const m = String(formula).trim().match(FORMULA_RE);
+  // Models often write formulas with spaces around operators (e.g. "1d20 + 5") even when told
+  // not to — strip all whitespace rather than reject a perfectly clear formula outright.
+  const m = String(formula).replace(/\s+/g, '').match(FORMULA_RE);
   if (!m) return null;
 
   const count = m[1] ? parseInt(m[1], 10) : 1;

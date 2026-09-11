@@ -289,7 +289,7 @@ function stripToolMentions(text) {
     .split('\n')
     .filter(line => {
       const trimmed = line.trim();
-      if (/play_sound_effect|roll_dice/i.test(trimmed)) return false;
+      if (/play_sound_effect|roll_dice|update_character/i.test(trimmed)) return false;
       if (/^\*{0,2}(play\s+)?(sound\s+effect|dice\s+roll)s?\s*:?\*{0,2}$/i.test(trimmed)) return false;
       // A bare JSON object/array line (e.g. `{"effect":"door_creak"}`) is never real narration —
       // it's the model writing tool-call arguments directly instead of actually calling the tool.
@@ -350,11 +350,86 @@ async function runModel(env, model, messages, { tools, max_tokens } = {}) {
   return { message, neurons };
 }
 
+/**
+ * Execute one already-parsed tool call against room state, mutating rollResults/sfxRequests/
+ * characterUpdates as a side effect. Shared by both real tool_calls and the leaked-JSON
+ * recovery path below, so a call reaches the same logic regardless of how the model expressed it.
+ */
+function executeTool(state, name, args, { rollResults, sfxRequests, characterUpdates }) {
+  if (name === 'play_sound_effect') {
+    const effect = resolveEffectName(args.effect);
+    if (effect) { sfxRequests.push(effect); return { played: effect }; }
+    return { error: `Unknown effect "${args.effect}"` };
+  }
+  if (name === 'roll_dice') {
+    let result;
+    try { result = { label: args.label || 'Roll', ...dice.roll(args.formula) }; }
+    catch (err) { result = { label: args.label || 'Roll', formula: args.formula, error: errMsg(err) }; }
+    rollResults.push(result);
+    return result.error ? { error: result.error } : { breakdown: result.breakdown, total: result.total, rolls: result.rolls };
+  }
+  if (name === 'update_character') {
+    const actualName = findCharacterName(state.characters, args.characterName);
+    if (!actualName) return { error: `No character named "${args.characterName}"` };
+    const sheet = state.characters[actualName];
+    if (typeof args.hpMax === 'number') sheet.hp.max = Math.max(1, Math.round(args.hpMax));
+    if (typeof args.hpCurrent === 'number') sheet.hp.current = clamp(Math.round(args.hpCurrent), 0, sheet.hp.max);
+    if (typeof args.armorClass === 'number') sheet.armorClass = Math.round(args.armorClass);
+    if (args.abilityScores && typeof args.abilityScores === 'object') {
+      for (const [k, v] of Object.entries(args.abilityScores)) {
+        if (['STR', 'DEX', 'CON', 'INT', 'WIS', 'CHA'].includes(k) && typeof v === 'number') {
+          sheet.abilityScores[k] = Math.round(v);
+        }
+      }
+    }
+    if (Array.isArray(args.addEquipment)) {
+      for (const item of args.addEquipment) {
+        if (typeof item === 'string' && item.trim() && !sheet.equipment.includes(item.trim())) {
+          sheet.equipment.push(item.trim());
+        }
+      }
+    }
+    if (Array.isArray(args.removeEquipment)) {
+      const toRemove = args.removeEquipment.map(i => String(i).toLowerCase());
+      sheet.equipment = sheet.equipment.filter(i => !toRemove.includes(i.toLowerCase()));
+    }
+    characterUpdates.add(actualName);
+    return { updated: true, hp: sheet.hp, armorClass: sheet.armorClass, abilityScores: sheet.abilityScores };
+  }
+  return { error: `Unknown tool "${name}"` };
+}
+
+/**
+ * gpt-oss-20b occasionally writes a tool call out as plain JSON text instead of using real
+ * tool-calling (e.g. content is literally `{"effect":"sword_clash"}` or
+ * `{"name":"functions.play_sound_effect","arguments":"{...}"}`). stripToolMentions() already
+ * recognizes and removes that JSON so it never leaks into player-facing narration — but until
+ * this recovers it, the requested side effect (a sound, a roll, a stat change) was silently lost
+ * and the turn produced no narration at all. Detect the same shapes here so the caller can
+ * replay them as a real tool call instead of just discarding them.
+ */
+function detectLeakedToolCall(content) {
+  const trimmed = String(content || '').trim();
+  if (!trimmed || !/^[{[][\s\S]*[}\]]$/.test(trimmed)) return null;
+  let parsed;
+  try { parsed = JSON.parse(trimmed); } catch { return null; }
+  if (!parsed || typeof parsed !== 'object') return null;
+
+  if (typeof parsed.name === 'string' && 'arguments' in parsed) {
+    return { name: parsed.name.replace(/^functions\./, ''), args: parseToolArgs(parsed.arguments) };
+  }
+  if (typeof parsed.effect === 'string') return { name: 'play_sound_effect', args: parsed };
+  if (typeof parsed.formula === 'string') return { name: 'roll_dice', args: parsed };
+  if (typeof parsed.characterName === 'string') return { name: 'update_character', args: parsed };
+  return null;
+}
+
 async function runNarrator(env, state, initialMessages) {
   const messages = [...initialMessages];
   const rollResults = [];
   const sfxRequests = [];
   const characterUpdates = new Set();
+  const sideEffects = { rollResults, sfxRequests, characterUpdates };
 
   for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
     const { message } = await runModel(env, NARRATOR_MODEL, messages, {
@@ -363,58 +438,23 @@ async function runNarrator(env, state, initialMessages) {
 
     if (Array.isArray(message.tool_calls) && message.tool_calls.length) {
       messages.push({ role: 'assistant', content: message.content || '', tool_calls: message.tool_calls });
-
       for (const call of message.tool_calls) {
-        const name = call.function?.name;
-        const args = parseToolArgs(call.function?.arguments);
-        let toolResponse;
-
-        if (name === 'play_sound_effect') {
-          const effect = resolveEffectName(args.effect);
-          if (effect) { sfxRequests.push(effect); toolResponse = { played: effect }; }
-          else toolResponse = { error: `Unknown effect "${args.effect}"` };
-        } else if (name === 'roll_dice') {
-          let result;
-          try { result = { label: args.label || 'Roll', ...dice.roll(args.formula) }; }
-          catch (err) { result = { label: args.label || 'Roll', formula: args.formula, error: errMsg(err) }; }
-          rollResults.push(result);
-          toolResponse = result.error ? { error: result.error } : { breakdown: result.breakdown, total: result.total, rolls: result.rolls };
-        } else if (name === 'update_character') {
-          const actualName = findCharacterName(state.characters, args.characterName);
-          if (!actualName) {
-            toolResponse = { error: `No character named "${args.characterName}"` };
-          } else {
-            const sheet = state.characters[actualName];
-            if (typeof args.hpMax === 'number') sheet.hp.max = Math.max(1, Math.round(args.hpMax));
-            if (typeof args.hpCurrent === 'number') sheet.hp.current = clamp(Math.round(args.hpCurrent), 0, sheet.hp.max);
-            if (typeof args.armorClass === 'number') sheet.armorClass = Math.round(args.armorClass);
-            if (args.abilityScores && typeof args.abilityScores === 'object') {
-              for (const [k, v] of Object.entries(args.abilityScores)) {
-                if (['STR', 'DEX', 'CON', 'INT', 'WIS', 'CHA'].includes(k) && typeof v === 'number') {
-                  sheet.abilityScores[k] = Math.round(v);
-                }
-              }
-            }
-            if (Array.isArray(args.addEquipment)) {
-              for (const item of args.addEquipment) {
-                if (typeof item === 'string' && item.trim() && !sheet.equipment.includes(item.trim())) {
-                  sheet.equipment.push(item.trim());
-                }
-              }
-            }
-            if (Array.isArray(args.removeEquipment)) {
-              const toRemove = args.removeEquipment.map(i => String(i).toLowerCase());
-              sheet.equipment = sheet.equipment.filter(i => !toRemove.includes(i.toLowerCase()));
-            }
-            characterUpdates.add(actualName);
-            toolResponse = { updated: true, hp: sheet.hp, armorClass: sheet.armorClass, abilityScores: sheet.abilityScores };
-          }
-        } else {
-          toolResponse = { error: `Unknown tool "${name}"` };
-        }
-
+        const toolResponse = executeTool(state, call.function?.name, parseToolArgs(call.function?.arguments), sideEffects);
         messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(toolResponse) });
       }
+      continue;
+    }
+
+    const leaked = detectLeakedToolCall(message.content);
+    if (leaked) {
+      const syntheticId = `leaked_${iteration}`;
+      const toolResponse = executeTool(state, leaked.name, leaked.args, sideEffects);
+      messages.push({
+        role: 'assistant', content: '',
+        tool_calls: [{ id: syntheticId, type: 'function', function: { name: leaked.name, arguments: JSON.stringify(leaked.args) } }]
+      });
+      messages.push({ role: 'tool', tool_call_id: syntheticId, content: JSON.stringify(toolResponse) });
+      messages.push({ role: 'user', content: 'Now narrate that moment for the player.' });
       continue;
     }
 

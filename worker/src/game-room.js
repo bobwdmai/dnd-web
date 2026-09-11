@@ -67,6 +67,8 @@ function sanitizeSheet(raw, playerName) {
 }
 
 export class GameRoom extends DurableObject {
+  #turnQueue = Promise.resolve(); // serializes takeTurn() calls (see #handleChat)
+
   constructor(ctx, env) {
     super(ctx, env);
     this.state = null; // loaded lazily on first use (see #ensureLoaded)
@@ -316,20 +318,29 @@ export class GameRoom extends DurableObject {
 
       this.#broadcast({ type: 'player-said', name: playerName, text: action });
 
-      try {
-        const { narrative, rollResults, sfxRequests, mapOps, characterUpdates, budgetExceeded } =
-          await takeTurn(this.env, this.state, playerName, action);
-        this.#persist();
-        if (rollResults.length) this.#broadcast({ type: 'dice-rolled', rolls: rollResults });
-        if (sfxRequests.length) this.#broadcast({ type: 'sfx-played', effects: sfxRequests });
-        for (const name of characterUpdates) {
-          this.#broadcast({ type: 'character-updated', playerName: name, sheet: this.state.characters[name] });
+      // Two chat messages sent close together can both reach this handler before either
+      // finishes — the Durable Object doesn't serialize async work across events, so without
+      // this the two takeTurn() calls would run concurrently against the same mutable
+      // this.state (e.g. both reading a character's HP before either writes back a change,
+      // silently dropping one of the updates). Chaining onto a queue forces turns to run one
+      // at a time, in the order their messages arrived.
+      this.#turnQueue = this.#turnQueue.then(async () => {
+        try {
+          const { narrative, rollResults, sfxRequests, mapOps, characterUpdates, budgetExceeded } =
+            await takeTurn(this.env, this.state, playerName, action);
+          this.#persist();
+          if (rollResults.length) this.#broadcast({ type: 'dice-rolled', rolls: rollResults });
+          if (sfxRequests.length) this.#broadcast({ type: 'sfx-played', effects: sfxRequests });
+          for (const name of characterUpdates) {
+            this.#broadcast({ type: 'character-updated', playerName: name, sheet: this.state.characters[name] });
+          }
+          this.#broadcast({ type: 'dm-said', text: narrative, budgetExceeded });
+          if (mapOps.length) this.#broadcast({ type: 'map-ops', ops: mapOps });
+        } catch (err) {
+          this.#broadcast({ type: 'error', error: errMsg(err) });
         }
-        this.#broadcast({ type: 'dm-said', text: narrative, budgetExceeded });
-        if (mapOps.length) this.#broadcast({ type: 'map-ops', ops: mapOps });
-      } catch (err) {
-        this.#broadcast({ type: 'error', error: errMsg(err) });
-      }
+      });
+      await this.#turnQueue;
       return;
     }
 

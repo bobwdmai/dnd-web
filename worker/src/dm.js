@@ -74,11 +74,24 @@ Rules:
 - Reuse and extend the existing map's coordinates when the new area connects to it (e.g. a corridor
   continuing from an existing doorway) so the map stays spatially consistent turn to turn.
 - Start the block with a line containing only "clear" if, and only if, the party has moved somewhere
-  entirely new and unconnected to the existing map (e.g. teleported, started a new chapter). Otherwise
-  do not clear — just add the new lines/labels for what's new this turn.
+  entirely new and unconnected to the existing map (e.g. teleported, started a new chapter). A "clear"
+  line is NEVER the whole answer — it only means "the room I'm about to draw isn't connected to the old
+  one", so it must always be followed by the draw/label lines for that new room in the very same block.
+  Otherwise (the new area connects to what's already drawn) skip "clear" entirely and just add the new
+  lines/labels for what's new this turn.
 - If the narration describes no new physical space (e.g. it's just dialogue, a dice roll, or combat in
   an already-drawn room), output exactly:
 [MAP]
+[/MAP]
+
+Example — the party breaks into a brand-new room unconnected to anything drawn so far:
+[MAP]
+clear
+draw -10,-10 10,-10 #8a7a5a
+draw -10,-10 -10,10 #8a7a5a
+draw 10,-10 10,10 #8a7a5a
+draw -10,10 10,10 #8a7a5a
+label 0,0 Goblin Den
 [/MAP]
 - Never include any commentary, narration, or text outside the [MAP]...[/MAP] block.`;
 

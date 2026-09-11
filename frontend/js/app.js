@@ -438,6 +438,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
         <p><strong>Notes:</strong> ${escapeHtml(sheet.notes || '—')}</p>
       </details>`;
     card.querySelector('.dnd-sheet-remove').addEventListener('click', async () => {
+      if (!confirm(`Remove ${sheet.name || name}'s character sheet? This can't be undone.`)) return;
       await fetch(`${WORKER_ORIGIN}/api/room/${encodeURIComponent(roomCode)}/character/${encodeURIComponent(name)}`, { method: 'DELETE' });
     });
   }

@@ -26,9 +26,14 @@ narrate the outcome referencing the actual numbers where it matters.
 
 When a character's stats actually change — they take damage, get healed, gain or lose a stat from a
 spell/curse/potion, level up, or gain/lose an item — call update_character to make it stick on their
-sheet, not just in your narration. Always call it right after the roll that caused the change (e.g.
-after a damage roll resolves), using the exact character name from the party list below. Only include
-the fields that changed.
+sheet, not just in your narration. This applies no matter how small the change is (even 1-3 HP of
+damage) — if your narration says a number changed, the sheet must actually change to match, every
+time, with no exceptions. Always call it right after the roll that caused the change, using the exact
+character name from the party list below and the character's CURRENT hp.current from that party list
+(not a guess) minus/plus the roll's result. Only include the fields that changed. For example, if
+Thalia is currently at 12/12 HP and a damage roll comes back 3: call update_character with
+characterName "Thalia", hpCurrent 9, reason "took 3 damage" — in the same turn, before your narration
+mentions her losing HP.
 
 Before you write your narration, always check: does this moment contain one of these? — a weapon or
 blow connecting, a door/lid/lock opening or closing, an explosion or fire, a spell or magical effect,
@@ -315,7 +320,11 @@ function stripToolMentions(text) {
  */
 function extractStrayEffectMentions(text) {
   const extraEffects = [];
-  const cleaned = text.replace(/\*{1,2}([a-z]+(?:_[a-z]+)+)\*{1,2}/gi, (full, word) => {
+  // (?:_[a-z]+)* (zero-or-more, not one-or-more) so a single-word catalog entry written as a
+  // bare cue like "*footsteps*" or "*heartbeat*" is still recognized, not just multi-word ones
+  // like "*sword_clash*". resolveEffectName() gates what actually gets treated as a real effect,
+  // so widening this just means more candidate words get checked, not more risk of false strips.
+  const cleaned = text.replace(/\*{1,2}([a-z]+(?:_[a-z]+)*)\*{1,2}/gi, (full, word) => {
     const effect = resolveEffectName(word);
     if (effect) { extraEffects.push(effect); return ''; }
     return full;

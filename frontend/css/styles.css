@@ -21,7 +21,9 @@
   --dnd-dm-color: #8a5a1d;
   --dnd-player-color: #2f6f8f;
 
-  height: 100dvh;
+  /* The page now starts with the site's normal 60px nav header (see dragons-mud.html), so the
+     app fills what's left of the viewport rather than the whole thing. */
+  height: calc(100dvh - var(--header-height, 60px));
   background: var(--dnd-bg);
   color: var(--dnd-text);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
@@ -91,15 +93,6 @@ html[data-theme="dark"] .dnd-app {
 .dnd-gate-card button.dnd-primary { width: 100%; background: var(--dnd-accent-dim); border-color: var(--dnd-accent); color: var(--dnd-accent); margin-top: 4px; }
 .dnd-gate-status { font-size: 0.8rem; color: var(--dnd-text-dim); margin-top: 14px; min-height: 1.2em; }
 .dnd-gate-status.dnd-error { color: var(--dnd-danger); }
-
-.dnd-back-link {
-  color: var(--dnd-text-dim);
-  font-size: 0.8rem;
-  text-decoration: none;
-  white-space: nowrap;
-}
-.dnd-back-link:hover { color: var(--dnd-accent); text-decoration: underline; }
-.dnd-gate .dnd-back-link { position: fixed; top: 16px; left: 16px; }
 
 /* App shell */
 .dnd-topbar {
@@ -190,14 +183,12 @@ html[data-theme="dark"] .dnd-app {
 @media (max-width: 640px) {
   html, body { overflow-x: hidden; }
 
-  .dnd-app { height: auto; min-height: 100dvh; overflow: visible; }
+  .dnd-app { height: auto; min-height: calc(100dvh - var(--header-height, 60px)); overflow: visible; }
 
   .dnd-gate { padding: 16px; flex-direction: column; }
   .dnd-gate-card { padding: 24px 20px; width: 100%; }
-  .dnd-gate .dnd-back-link { position: static; display: block; margin-bottom: 16px; text-align: center; }
 
   .dnd-topbar { flex-wrap: wrap; row-gap: 6px; padding: 8px 12px; }
-  .dnd-topbar .dnd-back-link { order: -1; width: 100%; }
   .dnd-players { flex-basis: 100%; order: 1; }
 
   .dnd-layout { display: flex; flex-direction: column; }

@@ -8,10 +8,10 @@
   ],
   "ai": { "binding": "AI" },
   // Firebase web API key is a public client identifier by Firebase's own design (not a
-  // secret) — same project KnightAuraChess already uses, shared per the account-linking plan.
+  // secret) — this app's own dedicated Firebase project.
   "vars": {
-    "FIREBASE_WEB_API_KEY": "AIzaSyAIfAG7xIgM8vaEGcRiX6_N3vUqGtV2s5E",
-    "FIREBASE_PROJECT_ID": "test-b7194"
+    "FIREBASE_WEB_API_KEY": "AIzaSyANL4Q8wzTe6PLTH1a3Pv9vAht9n7OLY9Q",
+    "FIREBASE_PROJECT_ID": "bob-mai-b151e"
   },
   "kv_namespaces": [
     { "binding": "ROOM_BUDGET", "id": "ba3dc0955538477383e9e1d5a2d7ec95" },

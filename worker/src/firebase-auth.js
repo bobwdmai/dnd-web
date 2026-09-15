@@ -1,8 +1,9 @@
 // Firebase identity verification, shared between the HTTP router (index.js) and the Durable
-// Object (game-room.js, for the WebSocket 'join' message). Reuses the exact project and scheme
-// already running in the KnightAuraChess app: a `usernames` collection reserves each name to one
-// uid, and `users/{uid}` is publicly readable, so a signed-in player's username can be trusted
-// here without ever letting them just claim any name they type over the wire.
+// Object (game-room.js, for the WebSocket 'join' message). This app's own dedicated Firebase
+// project, using the same reservation scheme originally built for KnightAuraChess: a
+// `usernames` collection reserves each name to one uid, and `users/{uid}` is publicly readable,
+// so a signed-in player's username can be trusted here without ever letting them just claim
+// any name they type over the wire.
 
 const idTokenCache = new Map(); // idToken -> { uid, expiresAt }
 const AUTH_CACHE_MAX_MS = 30 * 60 * 1000;

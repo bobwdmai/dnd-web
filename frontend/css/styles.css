@@ -85,6 +85,8 @@ html[data-theme="dark"] .dnd-app {
 }
 .dnd-gate-card h1 { margin: 0 0 4px; color: var(--dnd-accent); letter-spacing: 1px; }
 .dnd-gate-card .dnd-sub { color: var(--dnd-text-dim); margin-top: 0; font-size: 0.85rem; }
+#dnd-continue-box { margin-top: 18px; }
+#dnd-continue-box .dnd-primary { font-size: 0.85rem; }
 .dnd-gate-tabs { display: flex; gap: 8px; margin: 18px 0 14px; }
 .dnd-gate-tabs button { flex: 1; }
 .dnd-gate-tabs button.active { background: var(--dnd-accent-dim); border-color: var(--dnd-accent); color: var(--dnd-accent); }

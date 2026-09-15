@@ -23,6 +23,8 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
   const globalNameInput = document.getElementById('dnd-global-name-input');
   const globalBtn = document.getElementById('dnd-global-btn');
   const gateStatus = document.getElementById('dnd-gate-status');
+  const continueBox = document.getElementById('dnd-continue-box');
+  const continueBtn = document.getElementById('dnd-continue-btn');
 
   const app = document.getElementById('dnd-app');
   const roomBadge = document.getElementById('dnd-room-badge');
@@ -135,12 +137,45 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
   function enterRoom(code, name) {
     roomCode = code;
     playerName = name;
+    saveSession(code, name);
     gate.classList.add('dnd-hidden');
     app.classList.remove('dnd-hidden');
     roomBadge.textContent = code;
     unlockAudio();
     connectSocket();
   }
+
+  // ================================================================
+  // Remembering your own game+name across visits — without this, closing the
+  // tab and coming back meant retyping the room code and your exact name
+  // from memory just to see your own character sheet again.
+  // ================================================================
+  const SESSION_KEY = 'dnd-last-session';
+
+  function saveSession(code, name) {
+    try { localStorage.setItem(SESSION_KEY, JSON.stringify({ roomCode: code, playerName: name })); }
+    catch { /* private browsing or storage disabled — reconnecting just requires retyping */ }
+  }
+  function loadSession() {
+    try { return JSON.parse(localStorage.getItem(SESSION_KEY)); }
+    catch { return null; }
+  }
+  function clearSession() {
+    try { localStorage.removeItem(SESSION_KEY); } catch { /* nothing to clear */ }
+  }
+
+  (async function offerContinue() {
+    const saved = loadSession();
+    if (!saved?.roomCode || !saved?.playerName) return;
+    try {
+      const res = await fetch(`${WORKER_ORIGIN}/api/room/${encodeURIComponent(saved.roomCode)}/status`);
+      const data = await res.json();
+      if (!data.initialized || data.ended) { clearSession(); return; }
+      continueBtn.textContent = `Continue as ${saved.playerName} in "${data.campaign}" →`;
+      continueBox.classList.remove('dnd-hidden');
+      continueBtn.addEventListener('click', () => enterRoom(saved.roomCode, saved.playerName));
+    } catch { /* network hiccup — not worth surfacing on load, the tabs below still work */ }
+  })();
 
   // ================================================================
   // WebSocket connection
@@ -198,6 +233,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
       }
       case 'game-ended':
         gameEnded = true;
+        clearSession(); // this room can't be rejoined, so don't keep offering to continue it
         appendMsg({ text: `🏁 ${msg.endedBy} ended the game. This room is now closed — thanks for playing!`, cls: 'dnd-system' });
         chatInput.disabled = true;
         chatForm.querySelector('button').disabled = true;

@@ -7,6 +7,12 @@
     { "pattern": "dnd-dm.bob-mai.com", "custom_domain": true }
   ],
   "ai": { "binding": "AI" },
+  // Firebase web API key is a public client identifier by Firebase's own design (not a
+  // secret) — same project KnightAuraChess already uses, shared per the account-linking plan.
+  "vars": {
+    "FIREBASE_WEB_API_KEY": "AIzaSyAIfAG7xIgM8vaEGcRiX6_N3vUqGtV2s5E",
+    "FIREBASE_PROJECT_ID": "test-b7194"
+  },
   "kv_namespaces": [
     { "binding": "ROOM_BUDGET", "id": "ba3dc0955538477383e9e1d5a2d7ec95" },
     { "binding": "ROOM_REGISTRY", "id": "cd107b3f20294abb85ad6ec275e5ae1f" }

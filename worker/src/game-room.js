@@ -1,5 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 import { takeTurn, formatCharacterSheet, findCharacterName } from './dm.js';
+import { resolveVerifiedUsername } from './firebase-auth.js';
 import * as dice from './dice.js';
 
 /** Case/whitespace-insensitive identity check — "Bob" and "bob" are the same player. */
@@ -7,10 +8,11 @@ function sameName(a, b) {
   return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
 }
 
-function freshState(campaign, roomCode) {
+function freshState(campaign, roomCode, ephemeral) {
   return {
     campaign: campaign || 'New Campaign',
     roomCode: roomCode || null, // so this room can update its own entry in the room registry
+    ephemeral: !!ephemeral, // solo/anonymous games: never written to storage, never registered
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     ownerName: null, // set to whoever first joins; only they may end the game
@@ -87,6 +89,7 @@ export class GameRoom extends DurableObject {
   }
 
   #persist() {
+    if (this.state.ephemeral) return; // solo/anonymous games are never written to storage
     this.state.updatedAt = new Date().toISOString();
     this.ctx.storage.sql.exec(
       `INSERT INTO room (id, state_json, updated_at) VALUES (1, ?, ?)
@@ -97,15 +100,15 @@ export class GameRoom extends DurableObject {
 
   /** Update this room's entry in the KV registry (used by the local-only admin script). */
   async #updateRegistry(patch) {
-    if (!this.state?.roomCode) return;
+    if (!this.state?.roomCode || this.state.ephemeral) return;
     await this.env.ROOM_REGISTRY.put(`room:${this.state.roomCode}`, '', {
       metadata: { campaign: this.state.campaign, createdAt: this.state.createdAt, ended: false, ...patch }
     });
   }
 
-  #ensureInitialized(campaign, roomCode) {
+  #ensureInitialized(campaign, roomCode, ephemeral) {
     if (!this.state) {
-      this.state = freshState(campaign, roomCode);
+      this.state = freshState(campaign, roomCode, ephemeral);
       this.#persist();
     }
   }
@@ -161,9 +164,10 @@ export class GameRoom extends DurableObject {
       const wasInitialized = !!this.state;
       const campaignParam = url.searchParams.get('campaign');
       const codeParam = url.searchParams.get('code');
+      const ephemeralParam = url.searchParams.get('ephemeral') === '1';
       // A campaign param means "reserve this code": initialize the room now so a concurrent
       // create-room request sees it as taken instead of handing out the same fresh code twice.
-      if (!wasInitialized && campaignParam) this.#ensureInitialized(campaignParam, codeParam);
+      if (!wasInitialized && campaignParam) this.#ensureInitialized(campaignParam, codeParam, ephemeralParam);
       return Response.json({
         initialized: wasInitialized,
         campaign: this.state?.campaign || null,
@@ -280,7 +284,16 @@ export class GameRoom extends DurableObject {
     }
 
     if (msg.type === 'join') {
-      const name = String(msg.name || 'Adventurer').trim().slice(0, 40) || 'Adventurer';
+      // A verified username (from a signed-in account) always wins over whatever free-text
+      // name the client sent — this is what actually makes impersonation impossible, since the
+      // client can't forge who a valid ID token belongs to. Anonymous joins (no token) keep
+      // today's free-text behavior, except the Global Game, which requires a verified identity.
+      const verifiedName = await resolveVerifiedUsername(msg.idToken, this.env);
+      if (this.state.roomCode === 'GLOBAL' && !verifiedName) {
+        this.#send(ws, { type: 'error', error: 'Sign in to join the Global Game.' });
+        return;
+      }
+      const name = verifiedName || (String(msg.name || 'Adventurer').trim().slice(0, 40) || 'Adventurer');
       ws.serializeAttachment({ name });
       if (!this.state.ownerName) {
         this.state.ownerName = name; // first to join created the game and owns it

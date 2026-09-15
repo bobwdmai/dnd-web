@@ -25,6 +25,10 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
   const gateStatus = document.getElementById('dnd-gate-status');
   const continueBox = document.getElementById('dnd-continue-box');
   const continueBtn = document.getElementById('dnd-continue-btn');
+  const createSoloNote = document.getElementById('dnd-create-solo-note');
+  const createAccountNote = document.getElementById('dnd-create-account-note');
+  const joinAccountNote = document.getElementById('dnd-join-account-note');
+  const globalAccountNote = document.getElementById('dnd-global-account-note');
 
   const app = document.getElementById('dnd-app');
   const roomBadge = document.getElementById('dnd-room-badge');
@@ -76,15 +80,45 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
     gateStatus.classList.toggle('dnd-error', !!isError);
   }
 
+  // ================================================================
+  // Account state — driven by the shared /shared/auth.js widget (window.SiteAuth). Signed in:
+  // your reserved username is used everywhere, name inputs are hidden. Signed out: today's
+  // free-text-name flow stays, except a new game is a solo/unsaved one and the Global Game
+  // (the one shared persistent world) requires signing in.
+  // ================================================================
+  function applyAuthState() {
+    const username = window.SiteAuth?.getUsername() || null;
+
+    createSoloNote.classList.toggle('dnd-hidden', !!username);
+    createNameInput.classList.toggle('dnd-hidden', !!username);
+    createAccountNote.classList.toggle('dnd-hidden', !username);
+    if (username) createAccountNote.textContent = `Playing as ${username}`;
+    createBtn.textContent = username ? 'Start a New Game' : 'Play Solo';
+
+    joinNameInput.classList.toggle('dnd-hidden', !!username);
+    joinAccountNote.classList.toggle('dnd-hidden', !username);
+    if (username) joinAccountNote.textContent = `Playing as ${username}`;
+
+    globalNameInput.classList.toggle('dnd-hidden', !!username);
+    globalAccountNote.classList.toggle('dnd-hidden', !username);
+    if (username) globalAccountNote.textContent = `Playing as ${username}`;
+    globalBtn.textContent = username ? 'Join the Global Game' : 'Sign In to Join';
+  }
+  applyAuthState();
+  window.SiteAuth?.onChange(applyAuthState);
+
   createBtn.addEventListener('click', async () => {
-    const name = createNameInput.value.trim();
+    const username = window.SiteAuth?.getUsername() || null;
+    const name = username || createNameInput.value.trim();
     if (!name) { createNameInput.focus(); return; }
     createBtn.disabled = true;
-    setGateStatus('Creating your game…');
+    setGateStatus(username ? 'Creating your game…' : 'Starting a solo game…');
     try {
+      const idToken = username ? await window.SiteAuth.getIdToken() : null;
       const res = await fetch(`${WORKER_ORIGIN}/api/create-room`, {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ campaign: campaignInput.value.trim() || 'New Campaign' })
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...(idToken ? { authorization: `Bearer ${idToken}` } : {}) },
+        body: JSON.stringify({ campaign: campaignInput.value.trim() || 'New Campaign', solo: !username })
       });
       const data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error || 'Could not create a game.');
@@ -96,7 +130,8 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
   });
 
   joinBtn.addEventListener('click', async () => {
-    const name = joinNameInput.value.trim();
+    const username = window.SiteAuth?.getUsername() || null;
+    const name = username || joinNameInput.value.trim();
     const code = codeInput.value.trim().toUpperCase();
     if (!code) { codeInput.focus(); return; }
     if (!name) { joinNameInput.focus(); return; }
@@ -118,21 +153,26 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
   createNameInput.addEventListener('keydown', e => { if (e.key === 'Enter') createBtn.click(); });
 
   globalBtn.addEventListener('click', async () => {
-    const name = globalNameInput.value.trim();
-    if (!name) { globalNameInput.focus(); return; }
+    const username = window.SiteAuth?.getUsername() || null;
+    if (!username) {
+      setGateStatus('Sign in using the button at the top of the page first.', true);
+      return;
+    }
     globalBtn.disabled = true;
     setGateStatus('Joining the global game…');
     try {
-      const res = await fetch(`${WORKER_ORIGIN}/api/global-room`, { method: 'POST' });
+      const idToken = await window.SiteAuth.getIdToken();
+      const res = await fetch(`${WORKER_ORIGIN}/api/global-room`, {
+        method: 'POST', headers: { authorization: `Bearer ${idToken}` }
+      });
       const data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error || 'Could not join the global game.');
-      enterRoom(data.code, name);
+      enterRoom(data.code, username);
     } catch (err) {
       setGateStatus(err.message, true);
       globalBtn.disabled = false;
     }
   });
-  globalNameInput.addEventListener('keydown', e => { if (e.key === 'Enter') globalBtn.click(); });
 
   function enterRoom(code, name) {
     roomCode = code;
@@ -184,8 +224,12 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
     const wsUrl = WORKER_ORIGIN.replace(/^http/, 'ws') + `/api/room/${encodeURIComponent(roomCode)}`;
     socket = new WebSocket(wsUrl);
 
-    socket.addEventListener('open', () => {
-      socket.send(JSON.stringify({ type: 'join', name: playerName }));
+    socket.addEventListener('open', async () => {
+      // A verified username always wins server-side over `name` — this just lets a signed-in
+      // player reconnect with the right identity without retyping anything (and is required
+      // for the Global Game specifically).
+      const idToken = window.SiteAuth?.getUsername() ? await window.SiteAuth.getIdToken() : null;
+      socket.send(JSON.stringify({ type: 'join', name: playerName, idToken }));
     });
 
     socket.addEventListener('message', (event) => {

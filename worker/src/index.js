@@ -1,4 +1,5 @@
 export { GameRoom } from './game-room.js';
+import { resolveVerifiedUsername as resolveUsernameFromToken } from './firebase-auth.js';
 
 const ALLOWED_ORIGINS = new Set([
   'https://bob-mai.com',
@@ -22,11 +23,24 @@ function corsHeaders(request) {
   const origin = request.headers.get('origin');
   const headers = {
     'access-control-allow-methods': 'GET, POST, DELETE, OPTIONS',
-    'access-control-allow-headers': 'content-type',
+    'access-control-allow-headers': 'content-type, authorization',
     vary: 'origin'
   };
   if (origin && ALLOWED_ORIGINS.has(origin)) headers['access-control-allow-origin'] = origin;
   return headers;
+}
+
+function getBearerToken(request) {
+  const header = request.headers.get('authorization') || '';
+  const match = header.match(/^Bearer\s+(.+)$/i);
+  return match ? match[1] : null;
+}
+
+/** Verifies the request's bearer token and resolves the caller's reserved username. Returns
+ *  null if there's no token or it doesn't resolve to a claimed username — callers decide
+ *  whether that's an error (creating a real room, the Global Game) or fine (anonymous joins). */
+async function resolveVerifiedUsername(request, env) {
+  return resolveUsernameFromToken(getBearerToken(request), env);
 }
 
 function json(request, data, status = 200) {
@@ -64,11 +78,20 @@ async function handle(request, env) {
       return new Response(null, { status: 204, headers: corsHeaders(request) });
     }
 
-    // POST /api/create-room { campaign } -> { code }
+    // POST /api/create-room { campaign, solo } -> { code }
+    // A real (multi-player, persistent) game requires a signed-in, reserved username — that's
+    // the whole point of accounts. A solo game skips that (anonymous "try it out" play still
+    // works) but is marked ephemeral and never registered, so it truly isn't saved anywhere.
     if (url.pathname === '/api/create-room' && request.method === 'POST') {
       let body = {};
       try { body = await request.json(); } catch { /* empty body is fine */ }
       const campaign = String(body.campaign || 'New Campaign').slice(0, 80);
+      const solo = !!body.solo;
+
+      if (!solo) {
+        const username = await resolveVerifiedUsername(request, env);
+        if (!username) return json(request, { error: 'Sign in to start a new game.' }, 401);
+      }
 
       // Vanishingly unlikely to collide (32^6 codes), but check anyway and retry a couple times.
       for (let attempt = 0; attempt < 5; attempt++) {
@@ -79,9 +102,12 @@ async function handle(request, env) {
           // Touch the room so it's marked initialized immediately (avoids a race where two
           // creators are handed the same fresh code before either connects), and tell it its
           // own code so it can update the room registry when it ends.
-          await stub.fetch(`https://do/status?campaign=${encodeURIComponent(campaign)}&code=${code}`);
-          const createdAt = new Date().toISOString();
-          await env.ROOM_REGISTRY.put(`room:${code}`, '', { metadata: { campaign, createdAt, ended: false } });
+          const ephemeralParam = solo ? '&ephemeral=1' : '';
+          await stub.fetch(`https://do/status?campaign=${encodeURIComponent(campaign)}&code=${code}${ephemeralParam}`);
+          if (!solo) {
+            const createdAt = new Date().toISOString();
+            await env.ROOM_REGISTRY.put(`room:${code}`, '', { metadata: { campaign, createdAt, ended: false } });
+          }
           return json(request, { code, campaign });
         }
       }
@@ -90,7 +116,11 @@ async function handle(request, env) {
 
     // POST /api/global-room -> ensures the one shared, permanent room exists and hands back its
     // fixed code, so the "Global Game" gate option can skip both create and join entirely.
+    // Requires a signed-in username — this is the one persistent shared world, where an
+    // impersonated free-text name would actually matter.
     if (url.pathname === '/api/global-room' && request.method === 'POST') {
+      const username = await resolveVerifiedUsername(request, env);
+      if (!username) return json(request, { error: 'Sign in to join the Global Game.' }, 401);
       const stub = env.GAME_ROOM.getByName(GLOBAL_ROOM_CODE);
       const status = await stub.fetch('https://do/status').then(r => r.json());
       if (!status.initialized) {

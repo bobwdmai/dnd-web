@@ -10,14 +10,18 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
   const gate = document.getElementById('dnd-gate');
   const createTabBtn = document.getElementById('dnd-tab-create');
   const joinTabBtn = document.getElementById('dnd-tab-join');
+  const globalTabBtn = document.getElementById('dnd-tab-global');
   const createPane = document.getElementById('dnd-pane-create');
   const joinPane = document.getElementById('dnd-pane-join');
+  const globalPane = document.getElementById('dnd-pane-global');
   const campaignInput = document.getElementById('dnd-campaign-input');
   const createNameInput = document.getElementById('dnd-create-name-input');
   const createBtn = document.getElementById('dnd-create-btn');
   const codeInput = document.getElementById('dnd-code-input');
   const joinNameInput = document.getElementById('dnd-join-name-input');
   const joinBtn = document.getElementById('dnd-join-btn');
+  const globalNameInput = document.getElementById('dnd-global-name-input');
+  const globalBtn = document.getElementById('dnd-global-btn');
   const gateStatus = document.getElementById('dnd-gate-status');
 
   const app = document.getElementById('dnd-app');
@@ -55,12 +59,15 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
   function selectTab(which) {
     createTabBtn.classList.toggle('active', which === 'create');
     joinTabBtn.classList.toggle('active', which === 'join');
+    globalTabBtn.classList.toggle('active', which === 'global');
     createPane.classList.toggle('dnd-hidden', which !== 'create');
     joinPane.classList.toggle('dnd-hidden', which !== 'join');
+    globalPane.classList.toggle('dnd-hidden', which !== 'global');
     gateStatus.textContent = '';
   }
   createTabBtn.addEventListener('click', () => selectTab('create'));
   joinTabBtn.addEventListener('click', () => selectTab('join'));
+  globalTabBtn.addEventListener('click', () => selectTab('global'));
 
   function setGateStatus(text, isError) {
     gateStatus.textContent = text;
@@ -107,6 +114,23 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
   codeInput.addEventListener('keydown', e => { if (e.key === 'Enter') joinBtn.click(); });
   joinNameInput.addEventListener('keydown', e => { if (e.key === 'Enter') joinBtn.click(); });
   createNameInput.addEventListener('keydown', e => { if (e.key === 'Enter') createBtn.click(); });
+
+  globalBtn.addEventListener('click', async () => {
+    const name = globalNameInput.value.trim();
+    if (!name) { globalNameInput.focus(); return; }
+    globalBtn.disabled = true;
+    setGateStatus('Joining the global game…');
+    try {
+      const res = await fetch(`${WORKER_ORIGIN}/api/global-room`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || 'Could not join the global game.');
+      enterRoom(data.code, name);
+    } catch (err) {
+      setGateStatus(err.message, true);
+      globalBtn.disabled = false;
+    }
+  });
+  globalNameInput.addEventListener('keydown', e => { if (e.key === 'Enter') globalBtn.click(); });
 
   function enterRoom(code, name) {
     roomCode = code;
@@ -168,7 +192,8 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
         }
         sheetsEl.innerHTML = '';
         for (const [name, sheet] of Object.entries(msg.state.characters || {})) renderSheet(name, sheet);
-        endGameBtn.classList.toggle('dnd-hidden', msg.state.ownerName !== playerName);
+        // The global game is shared and permanent — no one gets an End Game button for it.
+        endGameBtn.classList.toggle('dnd-hidden', roomCode === 'GLOBAL' || msg.state.ownerName !== playerName);
         break;
       }
       case 'game-ended':

@@ -280,6 +280,10 @@ export class GameRoom extends DurableObject {
     const playerName = attachment?.name || 'Adventurer';
 
     if (msg.type === 'end-game') {
+      if (this.state.roomCode === 'GLOBAL') {
+        this.#send(ws, { type: 'error', error: 'The global game is shared and can\'t be ended.' });
+        return;
+      }
       if (!sameName(playerName, this.state.ownerName)) {
         this.#send(ws, { type: 'error', error: 'Only the game owner can end the game.' });
         return;

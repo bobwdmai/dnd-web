@@ -8,6 +8,11 @@ const ALLOWED_ORIGINS = new Set([
 
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O/1/I, avoids look-alikes
 
+// A single fixed, permanent room anyone can drop into with no code — "GLOBAL" contains an O,
+// which CODE_ALPHABET excludes, so a randomly generated code can never collide with it.
+const GLOBAL_ROOM_CODE = 'GLOBAL';
+const GLOBAL_CAMPAIGN_NAME = 'The Global Game';
+
 function generateRoomCode() {
   const bytes = crypto.getRandomValues(new Uint8Array(6));
   return Array.from(bytes, b => CODE_ALPHABET[b % CODE_ALPHABET.length]).join('');
@@ -81,6 +86,24 @@ async function handle(request, env) {
         }
       }
       return json(request, { error: 'Could not allocate a room code, try again.' }, 500);
+    }
+
+    // POST /api/global-room -> ensures the one shared, permanent room exists and hands back its
+    // fixed code, so the "Global Game" gate option can skip both create and join entirely.
+    if (url.pathname === '/api/global-room' && request.method === 'POST') {
+      const stub = env.GAME_ROOM.getByName(GLOBAL_ROOM_CODE);
+      const status = await stub.fetch('https://do/status').then(r => r.json());
+      if (!status.initialized) {
+        await stub.fetch(`https://do/status?campaign=${encodeURIComponent(GLOBAL_CAMPAIGN_NAME)}&code=${GLOBAL_ROOM_CODE}`);
+        await env.ROOM_REGISTRY.put(`room:${GLOBAL_ROOM_CODE}`, '', {
+          metadata: { campaign: GLOBAL_CAMPAIGN_NAME, createdAt: new Date().toISOString(), ended: false }
+        });
+        return json(request, { code: GLOBAL_ROOM_CODE, campaign: GLOBAL_CAMPAIGN_NAME });
+      }
+      if (status.ended) {
+        return json(request, { error: 'The global game has ended and cannot be restarted right now.' }, 410);
+      }
+      return json(request, { code: GLOBAL_ROOM_CODE, campaign: status.campaign });
     }
 
     // -- Admin routes: secret-gated, used only by the local admin script -------------------

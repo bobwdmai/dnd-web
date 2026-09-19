@@ -183,6 +183,7 @@ body.dnd-page .header-nav { max-width: none; }
 }
 .dnd-create-char-form .dnd-cc-row:has(#cc-autofill) { grid-template-columns: 1fr auto; }
 #cc-autofill { white-space: nowrap; }
+.dnd-create-char-form .dnd-cc-row input { min-width: 0; width: 100%; }
 .dnd-cc-skills-head { font-size: 0.75rem; color: var(--dnd-text-dim); margin-bottom: 4px; }
 .dnd-cc-skills-box { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px; font-size: 0.8rem; max-height: 9.5rem; overflow-y: auto; }
 .dnd-cc-skills-box label { display: flex; align-items: center; gap: 4px; }

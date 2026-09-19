@@ -306,7 +306,11 @@ function stripToolMentions(text) {
     .filter(line => {
       const trimmed = line.trim();
       if (/play_sound_effect|roll_dice|update_character/i.test(trimmed)) return false;
-      if (/^\*{0,2}(play\s+)?(sound\s+effect|dice\s+roll)s?\s*:?\*{0,2}$/i.test(trimmed)) return false;
+      // A "**Play Sound Effect:**" style header line (optionally naming the effect) is the model
+      // labeling its own tool use, never narration. Normalize invisible characters and a
+      // full-width colon first so a near-miss variant doesn't slip past the match.
+      const normalized = trimmed.replace(/[\u200B-\u200D\uFEFF]/g, '').replace(/\uFF1A/g, ':');
+      if (/^[\s*_#>\-–—]*(?:play\s+)?(?:a\s+)?(?:sound\s*effects?|sfx|dice\s*rolls?)\b[\s*_:.\-–—]*(?:[a-z_]+(?:\s+[a-z_]+){0,2})?[\s*_.]*$/i.test(normalized)) return false;
       // A bare JSON object/array line (e.g. `{"effect":"door_creak"}`) is never real narration —
       // it's the model writing tool-call arguments directly instead of actually calling the tool.
       if (/^[{[][\s\S]*[}\]]$/.test(trimmed)) {

@@ -170,6 +170,23 @@ body.dnd-page .header-nav { max-width: none; }
 
 .dnd-create-char-form { display: flex; flex-direction: column; gap: 8px; }
 .dnd-create-char-form .dnd-cc-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.dnd-app select {
+  background: var(--dnd-bg-elev);
+  border: 1px solid var(--dnd-border);
+  color: var(--dnd-text);
+  border-radius: var(--radius, 6px);
+  padding: 8px 10px;
+  font-family: inherit;
+  font-size: 0.95rem;
+  width: 100%;
+  min-width: 0;
+}
+.dnd-create-char-form .dnd-cc-row:has(#cc-autofill) { grid-template-columns: 1fr auto; }
+#cc-autofill { white-space: nowrap; }
+.dnd-cc-skills-head { font-size: 0.75rem; color: var(--dnd-text-dim); margin-bottom: 4px; }
+.dnd-cc-skills-box { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px; font-size: 0.8rem; max-height: 9.5rem; overflow-y: auto; }
+.dnd-cc-skills-box label { display: flex; align-items: center; gap: 4px; }
+.dnd-cc-skills-box input:disabled + * , .dnd-cc-skills-box label:has(input:disabled) { opacity: 0.45; }
 .dnd-create-char-form .dnd-cc-abilities { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
 .dnd-create-char-form .dnd-cc-abilities label { display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 0.65rem; color: var(--dnd-text-dim); }
 .dnd-create-char-form .dnd-cc-abilities input { width: 100%; text-align: center; padding: 6px 2px; }

@@ -222,6 +222,9 @@ export class GameRoom extends DurableObject {
       const body = await request.json();
       const playerName = str(body.playerName, 40) || 'Adventurer';
       const sheet = sanitizeSheet(body.sheet, playerName);
+      // The form enforces a per-class skill quota (max 4, a Rogue's); this stops a hand-built
+      // request from claiming more than any class could ever pick.
+      sheet.skills = sheet.skills.slice(0, 4);
       // Reuse an existing character stored under a differently-cased/spaced version of this
       // name (e.g. "Bob" vs "bob" on reconnect) instead of creating a stray duplicate.
       const key = findCharacterName(this.state.characters, playerName) || playerName;

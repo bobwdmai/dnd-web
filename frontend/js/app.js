@@ -493,16 +493,123 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
     return value.split(',').map(s => s.trim()).filter(Boolean);
   }
 
+  // ---- 5e reference data: dropdown options, and the skill-pick quota per class ----------------
+  const RACES = ['Human', 'Elf', 'Dwarf', 'Halfling', 'Dragonborn', 'Gnome', 'Half-Elf', 'Half-Orc', 'Tiefling'];
+  const BACKGROUNDS = ['Acolyte', 'Charlatan', 'Criminal', 'Entertainer', 'Folk Hero', 'Guild Artisan',
+    'Hermit', 'Noble', 'Outlander', 'Sage', 'Sailor', 'Soldier', 'Urchin'];
+  const ALL_SKILLS = ['Acrobatics', 'Animal Handling', 'Arcana', 'Athletics', 'Deception', 'History', 'Insight',
+    'Intimidation', 'Investigation', 'Medicine', 'Nature', 'Perception', 'Performance', 'Persuasion',
+    'Religion', 'Sleight of Hand', 'Stealth', 'Survival'];
+  // quota = how many skills a class may pick; priority = ability order for the standard array.
+  const CLASSES = {
+    Barbarian: { hitDie: 12, saves: ['STR', 'CON'], quota: 2, priority: ['STR', 'CON', 'DEX', 'WIS', 'CHA', 'INT'],
+      skills: ['Animal Handling', 'Athletics', 'Intimidation', 'Nature', 'Perception', 'Survival'], kit: ['Greataxe', 'Handaxe x2', "Explorer's pack"] },
+    Bard: { hitDie: 8, saves: ['DEX', 'CHA'], quota: 3, priority: ['CHA', 'DEX', 'CON', 'WIS', 'INT', 'STR'],
+      skills: ALL_SKILLS, kit: ['Rapier', 'Lute', 'Dagger'] },
+    Cleric: { hitDie: 8, saves: ['WIS', 'CHA'], quota: 2, priority: ['WIS', 'CON', 'STR', 'CHA', 'DEX', 'INT'],
+      skills: ['History', 'Insight', 'Medicine', 'Persuasion', 'Religion'], kit: ['Mace', 'Shield', 'Holy symbol'] },
+    Druid: { hitDie: 8, saves: ['INT', 'WIS'], quota: 2, priority: ['WIS', 'CON', 'DEX', 'INT', 'CHA', 'STR'],
+      skills: ['Arcana', 'Animal Handling', 'Insight', 'Medicine', 'Nature', 'Perception', 'Religion', 'Survival'], kit: ['Quarterstaff', 'Druidic focus'] },
+    Fighter: { hitDie: 10, saves: ['STR', 'CON'], quota: 2, priority: ['STR', 'CON', 'DEX', 'WIS', 'CHA', 'INT'],
+      skills: ['Acrobatics', 'Animal Handling', 'Athletics', 'History', 'Insight', 'Intimidation', 'Perception', 'Survival'], kit: ['Longsword', 'Shield', 'Chain mail'] },
+    Monk: { hitDie: 8, saves: ['STR', 'DEX'], quota: 2, priority: ['DEX', 'WIS', 'CON', 'STR', 'CHA', 'INT'],
+      skills: ['Acrobatics', 'Athletics', 'History', 'Insight', 'Religion', 'Stealth'], kit: ['Shortsword', 'Darts x10'] },
+    Paladin: { hitDie: 10, saves: ['WIS', 'CHA'], quota: 2, priority: ['STR', 'CHA', 'CON', 'WIS', 'DEX', 'INT'],
+      skills: ['Athletics', 'Insight', 'Intimidation', 'Medicine', 'Persuasion', 'Religion'], kit: ['Longsword', 'Shield', 'Chain mail'] },
+    Ranger: { hitDie: 10, saves: ['STR', 'DEX'], quota: 3, priority: ['DEX', 'WIS', 'CON', 'STR', 'INT', 'CHA'],
+      skills: ['Animal Handling', 'Athletics', 'Insight', 'Investigation', 'Nature', 'Perception', 'Stealth', 'Survival'], kit: ['Longbow', 'Arrows x20', 'Shortsword x2'] },
+    Rogue: { hitDie: 8, saves: ['DEX', 'INT'], quota: 4, priority: ['DEX', 'CON', 'INT', 'CHA', 'WIS', 'STR'],
+      skills: ['Acrobatics', 'Athletics', 'Deception', 'Insight', 'Intimidation', 'Investigation', 'Perception', 'Performance', 'Persuasion', 'Sleight of Hand', 'Stealth'], kit: ['Rapier', 'Shortbow', "Thieves' tools", 'Dagger x2'] },
+    Sorcerer: { hitDie: 6, saves: ['CON', 'CHA'], quota: 2, priority: ['CHA', 'CON', 'DEX', 'WIS', 'INT', 'STR'],
+      skills: ['Arcana', 'Deception', 'Insight', 'Intimidation', 'Persuasion', 'Religion'], kit: ['Light crossbow', 'Arcane focus', 'Dagger x2'] },
+    Warlock: { hitDie: 8, saves: ['WIS', 'CHA'], quota: 2, priority: ['CHA', 'CON', 'DEX', 'WIS', 'INT', 'STR'],
+      skills: ['Arcana', 'Deception', 'History', 'Intimidation', 'Investigation', 'Nature', 'Religion'], kit: ['Light crossbow', 'Arcane focus', 'Dagger x2'] },
+    Wizard: { hitDie: 6, saves: ['INT', 'WIS'], quota: 2, priority: ['INT', 'CON', 'DEX', 'WIS', 'CHA', 'STR'],
+      skills: ['Arcana', 'History', 'Insight', 'Investigation', 'Medicine', 'Religion'], kit: ['Quarterstaff', 'Spellbook', 'Component pouch'] }
+  };
+  const CHARACTER_NAMES = ['Thalia', 'Brom', 'Kessa', 'Doran', 'Mirela', 'Fenn', 'Rurik', 'Sable', 'Tavish', 'Wren', 'Orin', 'Lyra'];
+  const ABILITY_KEYS = ['STR', 'DEX', 'CON', 'INT', 'WIS', 'CHA'];
+  const abilityMod = score => Math.floor((score - 10) / 2);
+
+  const raceSelect = document.getElementById('cc-race');
+  const classSelect = document.getElementById('cc-class');
+  const backgroundSelect = document.getElementById('cc-background');
+  const skillsBox = document.getElementById('cc-skills-box');
+  const skillsCount = document.getElementById('cc-skills-count');
+  const levelInput = document.getElementById('cc-level');
+
+  for (const [select, options] of [[raceSelect, RACES], [classSelect, Object.keys(CLASSES)], [backgroundSelect, BACKGROUNDS]]) {
+    for (const o of options) select.add(new Option(o, o));
+  }
+
+  function skillQuota() { return CLASSES[classSelect.value]?.quota || 0; }
+  function pickedSkills() { return [...skillsBox.querySelectorAll('input:checked')].map(i => i.value); }
+
+  function updateSkillLimits() {
+    const quota = skillQuota();
+    const picked = pickedSkills().length;
+    skillsCount.textContent = quota ? `(${picked}/${quota})` : '(pick a class first)';
+    for (const box of skillsBox.querySelectorAll('input')) {
+      box.disabled = !box.checked && picked >= quota;
+    }
+  }
+
+  // Rebuilds the checkbox list for the chosen class — only that class's skills are offered, and
+  // only as many as its quota allows can be ticked.
+  function renderSkillChoices() {
+    const cls = CLASSES[classSelect.value];
+    skillsBox.innerHTML = '';
+    for (const skill of cls?.skills || []) {
+      const label = document.createElement('label');
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.value = skill;
+      box.addEventListener('change', updateSkillLimits);
+      label.append(box, ` ${skill}`);
+      skillsBox.append(label);
+    }
+    updateSkillLimits();
+  }
+  classSelect.addEventListener('change', renderSkillChoices);
+  createCharForm.addEventListener('reset', () => setTimeout(renderSkillChoices, 0));
+
+  const pick = list => list[Math.floor(Math.random() * list.length)];
+
+  // A random but rules-legal character: standard array ordered by the class's priorities, HP from
+  // the class hit die + CON, AC from DEX, and exactly the class's quota of skills.
+  document.getElementById('cc-autofill').addEventListener('click', () => {
+    const cls = pick(Object.keys(CLASSES));
+    const data = CLASSES[cls];
+    document.getElementById('cc-name').value = pick(CHARACTER_NAMES);
+    raceSelect.value = pick(RACES);
+    classSelect.value = cls;
+    backgroundSelect.value = pick(BACKGROUNDS);
+    levelInput.value = 1;
+
+    const scores = {};
+    [15, 14, 13, 12, 10, 8].forEach((score, i) => { scores[data.priority[i]] = score; });
+    for (const key of ABILITY_KEYS) document.getElementById(`cc-${key.toLowerCase()}`).value = scores[key];
+    document.getElementById('cc-hp').value = data.hitDie + abilityMod(scores.CON);
+    document.getElementById('cc-ac').value = 10 + abilityMod(scores.DEX);
+    document.getElementById('cc-equipment').value = data.kit.join(', ');
+
+    renderSkillChoices();
+    const shuffled = [...data.skills].sort(() => Math.random() - 0.5).slice(0, data.quota);
+    for (const box of skillsBox.querySelectorAll('input')) box.checked = shuffled.includes(box.value);
+    updateSkillLimits();
+  });
+
   createCharForm.addEventListener('submit', async e => {
     e.preventDefault();
     const name = document.getElementById('cc-name').value.trim() || playerName;
     const hpMax = parseInt(document.getElementById('cc-hp').value, 10) || 10;
+    const level = parseInt(levelInput.value, 10) || 1;
     const sheet = {
       name,
-      race: document.getElementById('cc-race').value.trim(),
-      class: document.getElementById('cc-class').value.trim(),
-      level: parseInt(document.getElementById('cc-level').value, 10) || 1,
-      background: document.getElementById('cc-background').value.trim(),
+      race: raceSelect.value,
+      class: classSelect.value,
+      level,
+      background: backgroundSelect.value,
       alignment: '',
       abilityScores: {
         STR: parseInt(document.getElementById('cc-str').value, 10) || 10,
@@ -515,9 +622,9 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
       hp: { current: hpMax, max: hpMax },
       armorClass: parseInt(document.getElementById('cc-ac').value, 10) || 10,
       speed: 30,
-      proficiencyBonus: 2,
-      savingThrows: splitList(document.getElementById('cc-saves').value),
-      skills: splitList(document.getElementById('cc-skills').value),
+      proficiencyBonus: 2 + Math.floor((Math.min(Math.max(level, 1), 20) - 1) / 4),
+      savingThrows: CLASSES[classSelect.value]?.saves || [],
+      skills: pickedSkills().slice(0, skillQuota()),
       equipment: splitList(document.getElementById('cc-equipment').value),
       features: [],
       spells: [],

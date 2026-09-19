@@ -1,6 +1,7 @@
 import * as dice from './dice.js';
 import { parseMapBlock, applyOps } from './map-commands.js';
 import { spendNeurons, getBudgetStatus } from './budget.js';
+import { RUN_COMBAT_TOOL, ADVANCE_STORY_TOOL, runStructureTool, summarizeStructure } from './adventure.js';
 
 // One model for everything (narration, map, PDF sheets) — gpt-oss-20b.
 const NARRATOR_MODEL = '@cf/openai/gpt-oss-20b';
@@ -39,6 +40,22 @@ The world pushes back — a game where anyone can do anything isn't fun, so hold
 - Don't hand out rewards, allies, or shortcuts just because a player asked politely or insisted.
   Keep it fun with clear stakes and honest consequences, never with "no" as a dead end: when you
   refuse something, point at a real alternative.
+
+This game has structure — follow it, don't improvise around it:
+- The adventure (title, premise, chapters, and the current objective) is given in the context below.
+  Steer the story toward the current chapter's objective: put obstacles, clues, and real choices in
+  the way, and don't let the party wander off forever or skip ahead. When the party genuinely achieves
+  the current chapter's objective, call advance_story with action next_chapter, then narrate the new
+  situation. When the final objective is achieved — or the whole party is dead or hopelessly lost —
+  call advance_story with action end_adventure (outcome victory or defeat, plus a 1-3 sentence
+  epilogue) and narrate the finale. Never announce a chapter change or an ending without the call.
+- Fights are structured. The moment a fight starts, call run_combat with action start and list EVERY
+  combatant: each player character by exact name plus each enemy, numbered like "Goblin 1" (give
+  enemies an initiativeBonus). The server rolls initiative and fixes the order. Then run the fight in
+  that order: only the combatant whose turn it is acts — if someone else tries to act, tell them to
+  hold on. Narrate that combatant's action, roll what it needs, then call run_combat with action
+  next_turn and hand the spotlight to whoever is next. Enemies act on their own turns and you decide
+  and roll for them. Call run_combat with action end when the fight is over. Outside a fight, never use it.
 
 You roll all dice yourself with the roll_dice tool — players never need physical dice. Call it for any
 attack roll, saving throw, skill/ability check, damage roll, initiative, or other random outcome. Build
@@ -253,17 +270,18 @@ function historyEntryToMessage(h) {
 function contextMessage(state) {
   return {
     role: 'system',
-    content: `Campaign: ${state.campaign}\n\nParty:\n${summarizeCharacters(state.characters)}\n\n${summarizeMap(state.map)}`
+    content: `Campaign: ${state.campaign}\n\n${summarizeStructure(state)}\n\nParty:\n${summarizeCharacters(state.characters)}\n\n${summarizeMap(state.map)}`
   };
 }
 
-function buildMessages(state, playerName, actionText) {
+function buildMessages(state, playerName, actionText, opening) {
   const recent = state.history.slice(-24).map(historyEntryToMessage);
   return [
     { role: 'system', content: SYSTEM_PROMPT },
     contextMessage(state),
     ...recent,
-    { role: 'user', content: `${playerName}: ${actionText}` }
+    // The opening scene isn't a player's message — it's an instruction, so it carries no name.
+    { role: 'user', content: opening ? actionText : `${playerName}: ${actionText}` }
   ];
 }
 
@@ -319,7 +337,7 @@ function stripToolMentions(text) {
     .split('\n')
     .filter(line => {
       const trimmed = line.trim();
-      if (/play_sound_effect|roll_dice|update_character/i.test(trimmed)) return false;
+      if (/play_sound_effect|roll_dice|update_character|run_combat|advance_story/i.test(trimmed)) return false;
       // A "**Play Sound Effect:**" style header line (optionally naming the effect) is the model
       // labeling its own tool use, never narration. Normalize invisible characters and a
       // full-width colon first so a near-miss variant doesn't slip past the match.
@@ -400,7 +418,10 @@ async function runModel(env, model, messages, { tools, max_tokens } = {}) {
  * characterUpdates as a side effect. Shared by both real tool_calls and the leaked-JSON
  * recovery path below, so a call reaches the same logic regardless of how the model expressed it.
  */
-function executeTool(state, name, args, { rollResults, sfxRequests, characterUpdates }) {
+function executeTool(state, name, args, sideEffects) {
+  const { sfxRequests, characterUpdates } = sideEffects;
+  const { rollResults } = sideEffects;
+  if (name === 'run_combat' || name === 'advance_story') return runStructureTool(state, name, args, sideEffects);
   if (name === 'play_sound_effect') {
     const effect = resolveEffectName(args.effect);
     if (effect) { sfxRequests.push(effect); return { played: effect }; }
@@ -474,11 +495,11 @@ async function runNarrator(env, state, initialMessages) {
   const rollResults = [];
   const sfxRequests = [];
   const characterUpdates = new Set();
-  const sideEffects = { rollResults, sfxRequests, characterUpdates };
+  const sideEffects = { rollResults, sfxRequests, characterUpdates, structureChanged: false };
 
   for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
     const { message } = await runModel(env, NARRATOR_MODEL, messages, {
-      tools: [ROLL_TOOL, SFX_TOOL, UPDATE_CHARACTER_TOOL], max_tokens: NARRATOR_MAX_TOKENS
+      tools: [ROLL_TOOL, SFX_TOOL, UPDATE_CHARACTER_TOOL, RUN_COMBAT_TOOL, ADVANCE_STORY_TOOL], max_tokens: NARRATOR_MAX_TOKENS
     });
 
     if (Array.isArray(message.tool_calls) && message.tool_calls.length) {
@@ -503,12 +524,12 @@ async function runNarrator(env, state, initialMessages) {
       continue;
     }
 
-    return { narrative: message.content || '', rollResults, sfxRequests, characterUpdates: [...characterUpdates] };
+    return { narrative: message.content || '', rollResults, sfxRequests, characterUpdates: [...characterUpdates], structureChanged: sideEffects.structureChanged };
   }
 
   return {
     narrative: "(The DM got tangled up using tools and couldn't finish that turn. Try again.)",
-    rollResults, sfxRequests, characterUpdates: [...characterUpdates]
+    rollResults, sfxRequests, characterUpdates: [...characterUpdates], structureChanged: sideEffects.structureChanged
   };
 }
 
@@ -516,24 +537,25 @@ async function runNarrator(env, state, initialMessages) {
  * Run one DM turn. Returns { narrative, rollResults, sfxRequests, mapOps, budgetExceeded }.
  * If the daily neuron budget is already spent, returns a friendly refusal without calling the model.
  */
-export async function takeTurn(env, state, playerName, actionText) {
+export async function takeTurn(env, state, playerName, actionText, { opening = false } = {}) {
   const budget = await getBudgetStatus(env);
   if (budget.exceeded) {
     return {
       narrative: "The DM is resting — today's AI usage budget for this free demo has been used up. Please try again tomorrow (Eastern time).",
-      rollResults: [], sfxRequests: [], mapOps: [], characterUpdates: [], budgetExceeded: true
+      rollResults: [], sfxRequests: [], mapOps: [], characterUpdates: [], structureChanged: false, budgetExceeded: true
     };
   }
 
-  state.history.push({ role: 'user', name: playerName, content: actionText, ts: new Date().toISOString() });
+  if (!opening) state.history.push({ role: 'user', name: playerName, content: actionText, ts: new Date().toISOString() });
 
-  let rawNarrative = '', rollResults = [], sfxRequests = [], characterUpdates = [];
+  let rawNarrative = '', rollResults = [], sfxRequests = [], characterUpdates = [], structureChanged = false;
   try {
-    const result = await runNarrator(env, state, buildMessages(state, playerName, actionText));
+    const result = await runNarrator(env, state, buildMessages(state, playerName, actionText, opening));
     rawNarrative = result.narrative;
     rollResults = result.rollResults;
     sfxRequests = result.sfxRequests;
     characterUpdates = result.characterUpdates;
+    structureChanged = result.structureChanged;
   } catch (err) {
     rawNarrative = `(The DM stumbled: ${errMsg(err)})`;
   }
@@ -565,7 +587,7 @@ export async function takeTurn(env, state, playerName, actionText) {
     mapOps = []; // map generation is best-effort; a cartographer failure shouldn't fail the turn
   }
 
-  return { narrative, rollResults, sfxRequests, mapOps, characterUpdates, budgetExceeded: false };
+  return { narrative, rollResults, sfxRequests, mapOps, characterUpdates, structureChanged, budgetExceeded: false };
 }
 
 const SHEET_SCHEMA_HINT = `{

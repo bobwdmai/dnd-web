@@ -245,3 +245,11 @@ body.dnd-page .header-nav { max-width: none; }
 .dnd-topbar-actions .sa-panel { right: 0; }
 .dnd-cc-field { display: flex; flex-direction: column; gap: 2px; font-size: 0.7rem; color: var(--dnd-text-dim); }
 .dnd-create-char-form .dnd-cc-row:has(#cc-level) { align-items: end; }
+
+/* Quest + combat panels */
+.dnd-quest-title { font-weight: bold; margin-bottom: 4px; }
+.dnd-quest-objective, .dnd-quest-summary { font-size: 0.85rem; color: var(--dnd-text-dim); line-height: 1.4; }
+#dnd-quest-end button { margin-top: 8px; width: 100%; background: var(--dnd-accent-dim); border-color: var(--dnd-accent); color: var(--dnd-accent); }
+.dnd-combat-order { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; }
+.dnd-combat-order li { padding: 5px 8px; border-radius: 6px; background: var(--dnd-bg-elev); border: 1px solid var(--dnd-border); }
+.dnd-combat-order li.dnd-combat-current { border-color: var(--dnd-accent); background: var(--dnd-accent-dim); color: var(--dnd-accent); font-weight: bold; }

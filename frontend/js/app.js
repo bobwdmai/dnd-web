@@ -279,6 +279,9 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
         for (const [name, sheet] of Object.entries(msg.state.characters || {})) renderSheet(name, sheet);
         // The global game is shared and permanent — no one gets an End Game button for it.
         endGameBtn.classList.toggle('dnd-hidden', roomCode === 'GLOBAL' || msg.state.ownerName !== playerName);
+        amOwner = msg.state.ownerName === playerName;
+        renderAdventure(msg.state.adventure);
+        renderCombat(msg.state.combat);
         break;
       }
       case 'game-ended':
@@ -299,6 +302,10 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
         hideThinking();
         appendMsg({ who: 'DM', text: msg.text, cls: 'dnd-dm' });
         if (msg.budgetExceeded) appendMsg({ text: "(This free demo's daily AI budget is used up — the DM will be back tomorrow.)", cls: 'dnd-system' });
+        break;
+      case 'structure':
+        renderAdventure(msg.adventure);
+        renderCombat(msg.combat);
         break;
       case 'dice-rolled':
         appendRoll(msg.rolls);
@@ -328,6 +335,59 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
         break;
     }
   }
+
+  // ================================================================
+  // Adventure + combat panels (server-owned state; the DM drives it through tools)
+  // ================================================================
+  const questChapterEl = document.getElementById('dnd-quest-chapter');
+  const questTitleEl = document.getElementById('dnd-quest-title');
+  const questObjectiveEl = document.getElementById('dnd-quest-objective');
+  const questEndEl = document.getElementById('dnd-quest-end');
+  const questSummaryEl = document.getElementById('dnd-quest-summary');
+  const newAdventureBtn = document.getElementById('dnd-new-adventure-btn');
+  const combatPanel = document.getElementById('dnd-combat-panel');
+  const combatRoundEl = document.getElementById('dnd-combat-round');
+  const combatOrderEl = document.getElementById('dnd-combat-order');
+  let amOwner = false;
+  let adventureActive = true;
+
+  function renderAdventure(adv) {
+    if (!adv) return;
+    adventureActive = adv.status === 'active';
+    const ch = adv.chapters[Math.min(adv.chapter, adv.chapters.length - 1)];
+    questTitleEl.textContent = adv.title;
+    if (adventureActive) {
+      questChapterEl.textContent = `Chapter ${adv.chapter + 1}/${adv.chapters.length}`;
+      questObjectiveEl.textContent = `${ch.title}: ${ch.objective}`;
+    } else {
+      questChapterEl.textContent = adv.status === 'victory' ? 'Victory!' : 'Defeat';
+      questObjectiveEl.textContent = '';
+    }
+    questEndEl.classList.toggle('dnd-hidden', adventureActive);
+    questSummaryEl.textContent = adv.summary || '';
+    // The Global Game has no owner, so anyone may start its next adventure; elsewhere the owner does.
+    newAdventureBtn.classList.toggle('dnd-hidden', adventureActive || !(roomCode === 'GLOBAL' || amOwner));
+    chatInput.disabled = !adventureActive || gameEnded;
+    chatInput.placeholder = adventureActive ? 'What do you do? (or /roll 1d20+5)' : 'This adventure is over.';
+  }
+
+  function renderCombat(combat) {
+    const active = !!combat?.active;
+    combatPanel.classList.toggle('dnd-hidden', !active);
+    if (!active) return;
+    combatRoundEl.textContent = `Round ${combat.round}`;
+    combatOrderEl.innerHTML = '';
+    combat.order.forEach((c, i) => {
+      const li = document.createElement('li');
+      if (i === combat.turn) li.className = 'dnd-combat-current';
+      li.textContent = `${c.name} — ${c.initiative}`;
+      combatOrderEl.append(li);
+    });
+  }
+
+  newAdventureBtn.addEventListener('click', () => {
+    if (confirm('Begin a new adventure? The story and map reset; characters stay, fully healed.')) send({ type: 'new-adventure' });
+  });
 
   // ================================================================
   // Chat log rendering

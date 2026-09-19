@@ -1,6 +1,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import { takeTurn, formatCharacterSheet, findCharacterName } from './dm.js';
 import { resolveVerifiedUsername } from './firebase-auth.js';
+import { newAdventure, newCombat } from './adventure.js';
 import * as dice from './dice.js';
 
 /** Case/whitespace-insensitive identity check — "Bob" and "bob" are the same player. */
@@ -20,9 +21,16 @@ function freshState(campaign, roomCode, ephemeral) {
     endedAt: null,
     map: { lines: [], labels: [] },
     characters: {},
-    history: []
+    history: [],
+    adventure: newAdventure(),
+    combat: newCombat()
   };
 }
+
+const OPENING_INSTRUCTION =
+  '[The adventure begins. Open with a vivid opening scene built from the Adventure premise and the ' +
+  'current chapter in your context: place the party in the scene, introduce the hook, and end by giving ' +
+  'them a clear first choice or question. Do not ask them to describe themselves or their characters.]';
 
 function errMsg(err) {
   if (err instanceof Error) return err.message;
@@ -144,6 +152,59 @@ export class GameRoom extends DurableObject {
   #ownCharacterView(playerName) {
     const key = findCharacterName(this.state.characters, playerName);
     return key ? { [key]: this.state.characters[key] } : {};
+  }
+
+  /** Rooms created before adventures/combat existed get them on next contact. An old room that
+   *  already has story keeps its history and skips the opening scene. */
+  #ensureStructure() {
+    let changed = false;
+    if (!this.state.adventure) {
+      this.state.adventure = newAdventure();
+      this.state.adventure.opened = this.state.history.length > 0;
+      changed = true;
+    }
+    if (!this.state.combat) { this.state.combat = newCombat(); changed = true; }
+    if (changed) this.#persist();
+  }
+
+  #sendStateTo(ws, name) {
+    this.#send(ws, { type: 'state', state: { ...this.state, characters: this.#ownCharacterView(name) } });
+  }
+
+  /** Runs one DM turn behind the queue (see below) and broadcasts everything it produced. */
+  #queueTurn(playerName, action, opts) {
+    // Two chat messages sent close together can both reach the room before either finishes — the
+    // Durable Object doesn't serialize async work across events, so without this two takeTurn()
+    // calls would run concurrently against the same mutable this.state (e.g. both reading a
+    // character's HP before either writes back a change, silently dropping one of the updates).
+    // Chaining onto a queue forces turns to run one at a time, in the order they arrived.
+    this.#turnQueue = this.#turnQueue.then(async () => {
+      try {
+        const { narrative, rollResults, sfxRequests, mapOps, characterUpdates, structureChanged, budgetExceeded } =
+          await takeTurn(this.env, this.state, playerName, action, opts);
+        this.#persist();
+        if (rollResults.length) this.#broadcast({ type: 'dice-rolled', rolls: rollResults });
+        if (sfxRequests.length) this.#broadcast({ type: 'sfx-played', effects: sfxRequests });
+        for (const name of characterUpdates) {
+          this.#sendToPlayer(name, { type: 'character-updated', playerName: name, sheet: this.state.characters[name] });
+        }
+        if (structureChanged) this.#broadcast({ type: 'structure', adventure: this.state.adventure, combat: this.state.combat });
+        this.#broadcast({ type: 'dm-said', text: narrative, budgetExceeded });
+        if (mapOps.length) this.#broadcast({ type: 'map-ops', ops: mapOps });
+      } catch (err) {
+        this.#broadcast({ type: 'error', error: errMsg(err) });
+      }
+    });
+    return this.#turnQueue;
+  }
+
+  /** A fresh room's first visitor gets the opening scene instead of a blank log. */
+  #maybeOpen() {
+    const adv = this.state.adventure;
+    if (adv.status !== 'active' || adv.opened || this.state.history.length > 0) return;
+    adv.opened = true; // set before queueing so two near-simultaneous joins can't both open
+    this.#persist();
+    this.#queueTurn('', OPENING_INSTRUCTION, { opening: true });
   }
 
   #playerList() {
@@ -307,8 +368,10 @@ export class GameRoom extends DurableObject {
         this.state.ownerName = name;
         this.#persist();
       }
-      this.#send(ws, { type: 'state', state: { ...this.state, characters: this.#ownCharacterView(name) } });
+      this.#ensureStructure();
+      this.#sendStateTo(ws, name);
       this.#broadcast({ type: 'players', list: this.#playerList() });
+      this.#maybeOpen();
       return;
     }
 
@@ -356,31 +419,44 @@ export class GameRoom extends DurableObject {
         return;
       }
 
+      this.#ensureStructure();
+      if (this.state.adventure.status !== 'active') {
+        this.#send(ws, { type: 'error', error: 'This adventure is over — begin a new adventure to keep playing.' });
+        return;
+      }
+
       this.#broadcast({ type: 'player-said', name: playerName, text: action });
 
-      // Two chat messages sent close together can both reach this handler before either
-      // finishes — the Durable Object doesn't serialize async work across events, so without
-      // this the two takeTurn() calls would run concurrently against the same mutable
-      // this.state (e.g. both reading a character's HP before either writes back a change,
-      // silently dropping one of the updates). Chaining onto a queue forces turns to run one
-      // at a time, in the order their messages arrived.
-      this.#turnQueue = this.#turnQueue.then(async () => {
-        try {
-          const { narrative, rollResults, sfxRequests, mapOps, characterUpdates, budgetExceeded } =
-            await takeTurn(this.env, this.state, playerName, action);
-          this.#persist();
-          if (rollResults.length) this.#broadcast({ type: 'dice-rolled', rolls: rollResults });
-          if (sfxRequests.length) this.#broadcast({ type: 'sfx-played', effects: sfxRequests });
-          for (const name of characterUpdates) {
-            this.#sendToPlayer(name, { type: 'character-updated', playerName: name, sheet: this.state.characters[name] });
-          }
-          this.#broadcast({ type: 'dm-said', text: narrative, budgetExceeded });
-          if (mapOps.length) this.#broadcast({ type: 'map-ops', ops: mapOps });
-        } catch (err) {
-          this.#broadcast({ type: 'error', error: errMsg(err) });
-        }
-      });
-      await this.#turnQueue;
+      await this.#queueTurn(playerName, action);
+      return;
+    }
+
+    if (msg.type === 'new-adventure') {
+      this.#ensureStructure();
+      if (this.state.adventure.status === 'active') {
+        this.#send(ws, { type: 'error', error: 'The current adventure is still going.' });
+        return;
+      }
+      // The Global Game has no owner to speak for it, so anyone in it may start the next
+      // adventure once the last one is over; a private room leaves that to its owner.
+      if (this.state.roomCode !== 'GLOBAL' && !sameName(playerName, this.state.ownerName)) {
+        this.#send(ws, { type: 'error', error: 'Only the game owner can begin a new adventure.' });
+        return;
+      }
+      this.state.adventure = newAdventure(this.state.adventure.id);
+      this.state.combat = newCombat();
+      this.state.history = [];
+      this.state.map = { lines: [], labels: [] };
+      // Characters carry over, fully healed for the fresh start.
+      for (const sheet of Object.values(this.state.characters)) {
+        if (sheet?.hp) sheet.hp.current = sheet.hp.max;
+      }
+      this.#persist();
+      for (const socket of this.ctx.getWebSockets()) {
+        const who = socket.deserializeAttachment()?.name;
+        if (who) this.#sendStateTo(socket, who);
+      }
+      this.#maybeOpen();
       return;
     }
 

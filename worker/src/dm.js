@@ -2,14 +2,11 @@ import * as dice from './dice.js';
 import { parseMapBlock, applyOps } from './map-commands.js';
 import { spendNeurons, getBudgetStatus } from './budget.js';
 
-// Hybrid: a real model for the actual storytelling (vibe and remembering the campaign matter
-// there), a cheap one for mechanical tasks (turning narration into map lines, turning PDF text
-// into JSON) where quality matters far less and cost adds up faster (one extra call every turn).
+// One model for everything (narration, map, PDF sheets) — gpt-oss-20b.
 const NARRATOR_MODEL = '@cf/openai/gpt-oss-20b';
-const CHEAP_MODEL = '@cf/ibm-granite/granite-4.0-h-micro';
 const MAX_TOOL_ITERATIONS = 8;
 const NARRATOR_MAX_TOKENS = 900;
-const MAP_MAX_TOKENS = 500; // granite has no hidden-reasoning channel, so it needs far less headroom than gpt-oss did here
+const MAP_MAX_TOKENS = 1600; // gpt-oss's hidden reasoning can otherwise eat the whole budget before any [MAP] text comes out
 
 const SYSTEM_PROMPT = `You are the Dungeon Master for a text-based Dungeons & Dragons 5th edition game.
 Run the world, describe scenes vividly but concisely (2-5 short paragraphs max), voice NPCs, adjudicate
@@ -26,6 +23,22 @@ or as if it were already settled; players narrating their own success is not the
 and you must never let their phrasing substitute for your adjudication. You can and should have things
 not go the player's way — missed attacks, failed checks, NPCs who refuse, doors that stay locked — that
 tension is the game, not a malfunction of it.
+
+The world pushes back — a game where anyone can do anything isn't fun, so hold the line:
+- A character can only do what their sheet, gear, and the situation actually allow. Items not on their
+  equipment list, spells or features their class/level doesn't have, and powers that don't exist in
+  5e (flying, teleporting, conjuring weapons, "I have a rocket launcher") simply don't work — say so in
+  the fiction ("your hand closes on nothing") and offer what they can really do instead.
+- Make discoveries and progress earned. A vague action like "explore" or "look around" gets a short
+  surface description of what's plainly visible and a question about what specifically they do next —
+  hidden doors, secrets, traps and loot are only found by a specific action, and usually need a
+  meaningful check (a hard DC, so a low roll or no relevant skill can fail).
+- Difficulty is real: locked doors, strong monsters, guarded NPCs and dangerous terrain should often
+  win. Give the world its own agenda — monsters ambush, NPCs lie or bargain, resources (light, HP,
+  arrows, time) run down — and let failures cost something instead of always offering a free retry.
+- Don't hand out rewards, allies, or shortcuts just because a player asked politely or insisted.
+  Keep it fun with clear stakes and honest consequences, never with "no" as a dead end: when you
+  refuse something, point at a real alternative.
 
 You roll all dice yourself with the roll_dice tool — players never need physical dice. Call it for any
 attack roll, saving throw, skill/ability check, damage roll, initiative, or other random outcome. Build
@@ -213,7 +226,8 @@ function summarizeCharacters(characters) {
     const skills = (c.skills || []).join(', ') || 'none listed';
     return `- ${c.name || name}: Level ${c.level || '?'} ${c.race || ''} ${c.class || ''}, ` +
       `HP ${c.hp?.current ?? '?'}/${c.hp?.max ?? '?'}, AC ${c.armorClass ?? '?'}, proficiency bonus +${c.proficiencyBonus ?? 2}\n` +
-      `  Abilities: ${mods}\n  Save proficiencies: ${saves}\n  Skill proficiencies: ${skills}`;
+      `  Abilities: ${mods}\n  Save proficiencies: ${saves}\n  Skill proficiencies: ${skills}\n` +
+      `  Equipment (all they own): ${(c.equipment || []).join(', ') || 'nothing'}`;
   }).join('\n');
 }
 
@@ -339,7 +353,14 @@ function extractStrayEffectMentions(text) {
   // bare cue like "*footsteps*" or "*heartbeat*" is still recognized, not just multi-word ones
   // like "*sword_clash*". resolveEffectName() gates what actually gets treated as a real effect,
   // so widening this just means more candidate words get checked, not more risk of false strips.
-  const cleaned = text.replace(/\*{1,2}([a-z]+(?:_[a-z]+)*)\*{1,2}/gi, (full, word) => {
+  // A bare "effect: sword_clash" line is the tool call's argument written out as text — play it
+  // (if it names a real effect) instead of just showing it or silently dropping the sound.
+  const withoutEffectLines = text.replace(/^[ \t]*[*_]*effect[*_]*[ \t]*[:=][ \t]*([a-z_ -]+?)[ \t]*$/gim, (full, word) => {
+    const effect = resolveEffectName(word);
+    if (effect) { extraEffects.push(effect); return ''; }
+    return full;
+  });
+  const cleaned = withoutEffectLines.replace(/\*{1,2}([a-z]+(?:_[a-z]+)*)\*{1,2}/gi, (full, word) => {
     const effect = resolveEffectName(word);
     if (effect) { extraEffects.push(effect); return ''; }
     return full;
@@ -535,7 +556,7 @@ export async function takeTurn(env, state, playerName, actionText) {
 
   let mapOps = [];
   try {
-    const { message } = await runModel(env, CHEAP_MODEL, buildMapMessages(state, narrative), { max_tokens: MAP_MAX_TOKENS });
+    const { message } = await runModel(env, NARRATOR_MODEL, buildMapMessages(state, narrative), { max_tokens: MAP_MAX_TOKENS });
     const rawMap = message.content || '';
     const wrapped = rawMap.includes('[MAP]') ? rawMap : `[MAP]\n${rawMap}\n[/MAP]`;
     const parsedOps = parseMapBlock(wrapped).ops;
@@ -581,7 +602,7 @@ export async function formatCharacterSheet(env, rawText, playerName) {
     { role: 'user', content: `Player name (if the sheet doesn't state one, use this): ${playerName}\n\nExtracted PDF text:\n${trimmed}` }
   ];
 
-  const { message } = await runModel(env, CHEAP_MODEL, messages, { max_tokens: 900 });
+  const { message } = await runModel(env, NARRATOR_MODEL, messages, { max_tokens: 1600 });
   const jsonText = extractJson(message.content || '');
   let parsed;
   try { parsed = JSON.parse(jsonText); }

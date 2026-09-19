@@ -239,3 +239,7 @@ body.dnd-page .header-nav { max-width: none; }
 
   .dnd-app button { padding: 9px 14px; } /* slightly taller tap targets */
 }
+
+/* Once in a game, the shared sign-in widget sits in the settings row next to SFX / End Game. */
+.dnd-topbar-actions #site-auth-widget { padding: 0; }
+.dnd-topbar-actions .sa-panel { right: 0; }

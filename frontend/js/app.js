@@ -122,7 +122,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
       });
       const data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error || 'Could not create a game.');
-      enterRoom(data.code, name);
+      enterRoom(data.code, name, { solo: !username });
     } catch (err) {
       setGateStatus(err.message, true);
       createBtn.disabled = false;
@@ -174,13 +174,19 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
     }
   });
 
-  function enterRoom(code, name) {
+  function enterRoom(code, name, { solo = false } = {}) {
     roomCode = code;
     playerName = name;
-    saveSession(code, name);
+    // A solo game isn't saved or shareable, so there's no code to show and nothing to "continue".
+    if (!solo) saveSession(code, name);
+    roomBadge.parentElement.classList.toggle('dnd-hidden', solo);
     gate.classList.add('dnd-hidden');
     app.classList.remove('dnd-hidden');
     roomBadge.textContent = code;
+    // Sign-in lives with the other settings once you're in a game.
+    const authWidget = document.getElementById('site-auth-widget');
+    const topbarActions = document.querySelector('.dnd-topbar-actions');
+    if (authWidget && topbarActions) topbarActions.prepend(authWidget);
     unlockAudio();
     connectSocket();
   }

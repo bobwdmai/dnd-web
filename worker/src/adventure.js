@@ -95,25 +95,20 @@ export const RUN_COMBAT_TOOL = {
   function: {
     name: 'run_combat',
     description:
-      'Run structured combat. action "start": begin a fight — list EVERY combatant (each player character ' +
-      'by exact name, each enemy numbered like "Goblin 1") and the server rolls initiative and fixes the ' +
-      'order. action "next_turn": the current combatant is done, move to the next one (the round counter ' +
-      'advances automatically). action "end": the fight is over.',
+      'Begin or finish a structured fight. action "start": list EVERY combatant and the server rolls ' +
+      'initiative and fixes the turn order (it then advances turns and rounds itself). action "end": the ' +
+      'fight is over.',
     parameters: {
       type: 'object',
       properties: {
-        action: { type: 'string', enum: ['start', 'next_turn', 'end'] },
+        action: { type: 'string', enum: ['start', 'end'] },
         combatants: {
           type: 'array',
-          description: 'Only for action "start": every creature in the fight.',
-          items: {
-            type: 'object',
-            properties: {
-              name: { type: 'string', description: 'Exact name for a player character, or a unique name for an enemy.' },
-              initiativeBonus: { type: 'number', description: 'Enemies only: their initiative modifier (their DEX mod). Ignored for player characters.' }
-            },
-            required: ['name']
-          }
+          description:
+            'Only for action "start": every creature in the fight, one string each. A player character is just ' +
+            'their exact name (e.g. "Sable"). An enemy is a unique name plus its initiative modifier, e.g. ' +
+            '"Goblin 1 +2" or "Ogre -1".',
+          items: { type: 'string' }
         }
       },
       required: ['action']
@@ -163,16 +158,25 @@ function runCombat(state, args, sideEffects) {
   const combat = state.combat || (state.combat = newCombat());
 
   if (args.action === 'start') {
-    if (combat.active) return { error: 'Combat is already active — use next_turn, or end it first.' };
+    if (combat.active) return { error: 'Combat is already active — end it first.' };
     const list = Array.isArray(args.combatants) ? args.combatants.slice(0, 12) : [];
     if (!list.length) return { error: 'start needs a non-empty combatants list.' };
 
     const rolled = list.map(c => {
-      const label = String(c?.name || 'Unknown').slice(0, 40);
+      // Each entry is "Name" or "Name +2"; an object {name, initiativeBonus} is tolerated too.
+      let label, enemyBonus;
+      if (typeof c === 'string') {
+        const m = c.trim().match(/^(.*?)\s*([+-]\s*\d+)?$/);
+        label = (m?.[1] || c).slice(0, 40) || 'Unknown';
+        enemyBonus = m?.[2] ? Number(m[2].replace(/\s+/g, '')) : 0;
+      } else {
+        label = String(c?.name || 'Unknown').slice(0, 40);
+        enemyBonus = Number(c?.initiativeBonus) || 0;
+      }
       const pcKey = findCharacterName(state.characters, label);
       const bonus = pcKey
         ? abilityMod(state.characters[pcKey].abilityScores?.DEX)
-        : Math.max(-5, Math.min(10, Math.round(Number(c?.initiativeBonus) || 0)));
+        : Math.max(-5, Math.min(10, Math.round(enemyBonus)));
       const roll = dice.roll(`1d20${bonus >= 0 ? '+' : ''}${bonus}`);
       const display = pcKey || label;
       sideEffects.rollResults.push({ label: `Initiative: ${display}`, ...roll });
@@ -184,17 +188,11 @@ function runCombat(state, args, sideEffects) {
       order: rolled.map(({ name: n, initiative }) => ({ name: n, initiative }))
     };
     sideEffects.structureChanged = true;
+    sideEffects.combatStarted = true;
     return { started: true, round: 1, order: state.combat.order, current: state.combat.order[0].name };
   }
 
   if (!combat.active) return { error: 'Combat is not active.' };
-
-  if (args.action === 'next_turn') {
-    combat.turn += 1;
-    if (combat.turn >= combat.order.length) { combat.turn = 0; combat.round += 1; }
-    sideEffects.structureChanged = true;
-    return { round: combat.round, current: combat.order[combat.turn].name };
-  }
 
   if (args.action === 'end') {
     state.combat = newCombat();
@@ -232,4 +230,26 @@ function advanceStory(state, args, sideEffects) {
   }
 
   return { error: `Unknown story action "${args.action}".` };
+}
+
+/** After a DM response in an active fight, the server (not the model) moves the spotlight: enemy
+ *  turns are narrated inside the same reply, so it lands on the next PLAYER in initiative order,
+ *  bumping the round when the order wraps. Right after a fight starts it just settles on the
+ *  first player instead of advancing. */
+export function advanceCombat(state, justStarted) {
+  const combat = state.combat;
+  if (!combat?.active || !combat.order.length) return false;
+  const n = combat.order.length;
+  const isPlayer = i => !!findCharacterName(state.characters, combat.order[i].name);
+  let steps = 0;
+  if (justStarted) {
+    while (!isPlayer(combat.turn) && steps < n) { combat.turn = (combat.turn + 1) % n; steps++; }
+  } else {
+    do {
+      combat.turn += 1;
+      if (combat.turn >= n) { combat.turn = 0; combat.round += 1; }
+      steps++;
+    } while (!isPlayer(combat.turn) && steps < n);
+  }
+  return true;
 }

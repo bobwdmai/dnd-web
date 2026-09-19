@@ -1,12 +1,14 @@
 import * as dice from './dice.js';
 import { parseMapBlock, applyOps } from './map-commands.js';
 import { spendNeurons, getBudgetStatus } from './budget.js';
-import { RUN_COMBAT_TOOL, ADVANCE_STORY_TOOL, runStructureTool, summarizeStructure } from './adventure.js';
+import { RUN_COMBAT_TOOL, ADVANCE_STORY_TOOL, runStructureTool, summarizeStructure, advanceCombat } from './adventure.js';
 
 // One model for everything (narration, map, PDF sheets) — gpt-oss-20b.
 const NARRATOR_MODEL = '@cf/openai/gpt-oss-20b';
 const MAX_TOOL_ITERATIONS = 8;
-const NARRATOR_MAX_TOKENS = 900;
+// A function so it can sit up here while the tool definitions further down are still being evaluated.
+const narratorTools = () => [ROLL_TOOL, SFX_TOOL, UPDATE_CHARACTER_TOOL, RUN_COMBAT_TOOL, ADVANCE_STORY_TOOL];
+const NARRATOR_MAX_TOKENS = 2000; // gpt-oss spends part of this on hidden reasoning before any text or tool call
 const MAP_MAX_TOKENS = 1600; // gpt-oss's hidden reasoning can otherwise eat the whole budget before any [MAP] text comes out
 
 const SYSTEM_PROMPT = `You are the Dungeon Master for a text-based Dungeons & Dragons 5th edition game.
@@ -50,15 +52,16 @@ This game has structure — follow it, don't improvise around it:
   call advance_story with action end_adventure (outcome victory or defeat, plus a 1-3 sentence
   epilogue) and narrate the finale. Never announce a chapter change or an ending without the call.
 - Fights are structured. The moment a fight starts, call run_combat with action start and list EVERY
-  combatant: each player character by exact name plus each enemy, numbered like "Goblin 1" (give
-  enemies an initiativeBonus). The server rolls initiative and fixes the order. Then run the fight in
-  that order: only the combatant whose turn it is acts — if someone else tries to act, tell them to
-  hold on. Narrate that combatant's action, roll what it needs, then call run_combat with action
-  next_turn and hand the spotlight to whoever is next. Enemies act on their own turns and you decide
-  and roll for them. Call run_combat with action end when the fight is over. Outside a fight, never use it.
+  combatant as a string: each player character by exact name plus each enemy numbered with its
+  initiative modifier, like "Goblin 1 +2". The server rolls initiative and tracks turns and rounds
+  itself — never roll initiative or track order yourself. Only the player whose turn it is acts (if
+  someone else tries, tell them to hold on). Resolve their action, then narrate every enemy turn that
+  comes before the next player's turn (rolling those attacks yourself). Call run_combat with action
+  end when the fight is over. Outside a fight, never use it.
 
 You roll all dice yourself with the roll_dice tool — players never need physical dice. Call it for any
-attack roll, saving throw, skill/ability check, damage roll, initiative, or other random outcome. Build
+attack roll, saving throw, skill/ability check, damage roll, or other random outcome (but never initiative —
+run_combat rolls that). Build
 accurate formulas from the party's actual stats given below (ability modifier = floor((score-10)/2), add
 the character's proficiency bonus if they're proficient in that skill or save). You can call the tool
 more than once in a turn — e.g. roll an attack, see whether it hits, then roll damage — before writing
@@ -484,6 +487,8 @@ function detectLeakedToolCall(content) {
   if (typeof parsed.name === 'string' && 'arguments' in parsed) {
     return { name: parsed.name.replace(/^functions\./, ''), args: parseToolArgs(parsed.arguments) };
   }
+  if (['start', 'end'].includes(parsed.action)) return { name: 'run_combat', args: parsed };
+  if (['next_chapter', 'end_adventure'].includes(parsed.action)) return { name: 'advance_story', args: parsed };
   if (typeof parsed.effect === 'string') return { name: 'play_sound_effect', args: parsed };
   if (typeof parsed.formula === 'string') return { name: 'roll_dice', args: parsed };
   if (typeof parsed.characterName === 'string') return { name: 'update_character', args: parsed };
@@ -495,12 +500,24 @@ async function runNarrator(env, state, initialMessages) {
   const rollResults = [];
   const sfxRequests = [];
   const characterUpdates = new Set();
-  const sideEffects = { rollResults, sfxRequests, characterUpdates, structureChanged: false };
+  const sideEffects = { rollResults, sfxRequests, characterUpdates, structureChanged: false, combatStarted: false };
 
   for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
-    const { message } = await runModel(env, NARRATOR_MODEL, messages, {
-      tools: [ROLL_TOOL, SFX_TOOL, UPDATE_CHARACTER_TOOL, RUN_COMBAT_TOOL, ADVANCE_STORY_TOOL], max_tokens: NARRATOR_MAX_TOKENS
-    });
+    let message;
+    try {
+      ({ message } = await runModel(env, NARRATOR_MODEL, messages, { tools: narratorTools(), max_tokens: NARRATOR_MAX_TOKENS }));
+    } catch {
+      // Workers AI occasionally fails a call with "3043: Internal server error". Retry once; if
+      // the same request keeps failing, drop the tools and just ask for the narration so the
+      // turn still produces a story beat (the tool effects already applied are kept).
+      try {
+        ({ message } = await runModel(env, NARRATOR_MODEL, messages, { tools: narratorTools(), max_tokens: NARRATOR_MAX_TOKENS }));
+      } catch {
+        ({ message } = await runModel(env, NARRATOR_MODEL,
+          [...messages, { role: 'user', content: 'Now narrate what happens for the players, in the story. No tool calls.' }],
+          { max_tokens: NARRATOR_MAX_TOKENS }));
+      }
+    }
 
     if (Array.isArray(message.tool_calls) && message.tool_calls.length) {
       messages.push({ role: 'assistant', content: message.content || '', tool_calls: message.tool_calls });
@@ -524,12 +541,19 @@ async function runNarrator(env, state, initialMessages) {
       continue;
     }
 
-    return { narrative: message.content || '', rollResults, sfxRequests, characterUpdates: [...characterUpdates], structureChanged: sideEffects.structureChanged };
+    // An empty reply after the tools ran means the model spent its budget thinking — ask again
+    // for the narration rather than showing the players nothing.
+    if (!String(message.content || '').trim() && iteration < MAX_TOOL_ITERATIONS - 1) {
+      messages.push({ role: 'user', content: 'Now narrate what happens for the players, in the story.' });
+      continue;
+    }
+
+    return { narrative: message.content || '', rollResults, sfxRequests, characterUpdates: [...characterUpdates], structureChanged: sideEffects.structureChanged, combatStarted: sideEffects.combatStarted };
   }
 
   return {
     narrative: "(The DM got tangled up using tools and couldn't finish that turn. Try again.)",
-    rollResults, sfxRequests, characterUpdates: [...characterUpdates], structureChanged: sideEffects.structureChanged
+    rollResults, sfxRequests, characterUpdates: [...characterUpdates], structureChanged: sideEffects.structureChanged, combatStarted: sideEffects.combatStarted
   };
 }
 
@@ -548,7 +572,7 @@ export async function takeTurn(env, state, playerName, actionText, { opening = f
 
   if (!opening) state.history.push({ role: 'user', name: playerName, content: actionText, ts: new Date().toISOString() });
 
-  let rawNarrative = '', rollResults = [], sfxRequests = [], characterUpdates = [], structureChanged = false;
+  let rawNarrative = '', rollResults = [], sfxRequests = [], characterUpdates = [], structureChanged = false, combatStarted = false;
   try {
     const result = await runNarrator(env, state, buildMessages(state, playerName, actionText, opening));
     rawNarrative = result.narrative;
@@ -556,6 +580,7 @@ export async function takeTurn(env, state, playerName, actionText, { opening = f
     sfxRequests = result.sfxRequests;
     characterUpdates = result.characterUpdates;
     structureChanged = result.structureChanged;
+    combatStarted = result.combatStarted;
   } catch (err) {
     rawNarrative = `(The DM stumbled: ${errMsg(err)})`;
   }
@@ -575,6 +600,7 @@ export async function takeTurn(env, state, playerName, actionText, { opening = f
   }
 
   state.history.push({ role: 'dm', name: 'DM', content: narrative, ts: new Date().toISOString() });
+  if (advanceCombat(state, combatStarted)) structureChanged = true;
 
   let mapOps = [];
   try {

@@ -182,6 +182,15 @@ export class GameRoom extends DurableObject {
       try {
         const { narrative, rollResults, sfxRequests, mapOps, characterUpdates, structureChanged, budgetExceeded } =
           await takeTurn(this.env, this.state, playerName, action, opts);
+        // A failed opening (AI error, quota) must not leave the room with a broken first message
+        // and no way to retry — undo it so the next join tries the opening scene again.
+        if (opts?.opening && (budgetExceeded || /^\(The DM (stumbled|got tangled|pauses|is resting)/.test(narrative))) {
+          this.state.history = [];
+          this.state.adventure.opened = false;
+          this.#persist();
+          this.#broadcast({ type: 'error', error: "The DM couldn't open the scene just now — it will try again when someone rejoins." });
+          return;
+        }
         this.#persist();
         if (rollResults.length) this.#broadcast({ type: 'dice-rolled', rolls: rollResults });
         if (sfxRequests.length) this.#broadcast({ type: 'sfx-played', effects: sfxRequests });

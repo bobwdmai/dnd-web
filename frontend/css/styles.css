@@ -259,4 +259,4 @@ body.dnd-page .header-nav { max-width: none; }
 
 /* Full screen map */
 .dnd-panel.dnd-map-full { position: fixed; inset: 0; z-index: 1000; margin: 0; border-radius: 0; overflow: auto; background: var(--dnd-bg-panel); }
-.dnd-map-full #dnd-map-canvas { display: block; margin: 0 auto; width: min(100%, calc((100dvh - 90px) * 4 / 3)); height: auto; }
+.dnd-map-full #dnd-map-canvas { display: block; margin: 0 auto; width: min(100%, calc((100dvh - 90px) * var(--map-ar, 1.3333))); height: auto; }

@@ -508,6 +508,22 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
     }
   }
 
+  // Map dimensions are a per-viewer view setting: map coordinates are grid-relative to the
+  // center, so resizing the canvas just shows more or less of the same world.
+  const mapSizeSel = document.getElementById('dnd-map-size');
+  function setMapSize(v) {
+    const m = /^(\d+)x(\d+)$/.exec(v);
+    if (!m) return;
+    canvas.width = +m[1]; canvas.height = +m[2];
+    canvas.style.aspectRatio = `${m[1]} / ${m[2]}`;
+    canvas.style.setProperty('--map-ar', String(m[1] / m[2]));
+    mapSizeSel.value = v;
+    try { localStorage.setItem('dnd-map-size', v); } catch {}
+    drawMap();
+  }
+  mapSizeSel.addEventListener('change', () => setMapSize(mapSizeSel.value));
+  try { const saved = localStorage.getItem('dnd-map-size'); if (saved) setMapSize(saved); } catch {}
+
   mapClearBtn.addEventListener('click', () => send({ type: 'map-clear' }));
 
   // Full screen map: a fixed overlay (works everywhere, incl. phones), plus the browser's real

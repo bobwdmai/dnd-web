@@ -168,7 +168,7 @@ export class GameRoom extends DurableObject {
   }
 
   #sendStateTo(ws, name) {
-    this.#send(ws, { type: 'state', state: { ...this.state, characters: this.#ownCharacterView(name) } });
+    this.#send(ws, { type: 'state', state: { ...this.state, characters: this.#ownCharacterView(name) }, party: this.#publicParty() });
   }
 
   /** Runs one DM turn behind the queue (see below) and broadcasts everything it produced. */
@@ -214,6 +214,27 @@ export class GameRoom extends DurableObject {
     adv.opened = true; // set before queueing so two near-simultaneous joins can't both open
     this.#persist();
     this.#queueTurn('', OPENING_INSTRUCTION, { opening: true });
+  }
+
+  /** The one thing about a character everyone sees: who it is (name, race, class). Stats, HP,
+   *  gear and notes stay private to their owner. One entry per connected player. */
+  #publicParty(exceptWs) {
+    const seen = new Set();
+    const party = [];
+    for (const ws of this.ctx.getWebSockets()) {
+      if (ws === exceptWs) continue;
+      const player = ws.deserializeAttachment()?.name;
+      if (!player || seen.has(player.toLowerCase())) continue;
+      seen.add(player.toLowerCase());
+      const key = findCharacterName(this.state?.characters || {}, player);
+      const sheet = key ? this.state.characters[key] : null;
+      party.push({ player, name: sheet?.name || null, race: sheet?.race || '', class: sheet?.class || '' });
+    }
+    return party;
+  }
+
+  #broadcastPlayers(exceptWs) {
+    this.#broadcast({ type: 'players', list: this.#playerList(), party: this.#publicParty(exceptWs) }, exceptWs);
   }
 
   #playerList() {
@@ -301,6 +322,7 @@ export class GameRoom extends DurableObject {
       this.state.characters[key] = sheet;
       this.#persist();
       this.#sendToPlayer(key, { type: 'character-updated', playerName: key, sheet });
+      this.#broadcastPlayers();
       return Response.json({ ok: true, sheet });
     } catch (err) {
       return Response.json({ ok: false, error: errMsg(err) }, { status: 500 });
@@ -325,6 +347,7 @@ export class GameRoom extends DurableObject {
       this.state.characters[key] = sheet;
       this.#persist();
       this.#sendToPlayer(key, { type: 'character-updated', playerName: key, sheet });
+      this.#broadcastPlayers();
       return Response.json({ ok: true, sheet });
     } catch (err) {
       return Response.json({ ok: false, error: errMsg(err) }, { status: 500 });
@@ -340,6 +363,7 @@ export class GameRoom extends DurableObject {
     delete this.state.characters[key];
     this.#persist();
     this.#broadcast({ type: 'character-removed', playerName: key });
+    this.#broadcastPlayers();
     return Response.json({ ok: true });
   }
 
@@ -379,7 +403,7 @@ export class GameRoom extends DurableObject {
       }
       this.#ensureStructure();
       this.#sendStateTo(ws, name);
-      this.#broadcast({ type: 'players', list: this.#playerList() });
+      this.#broadcastPlayers();
       this.#maybeOpen();
       return;
     }
@@ -491,7 +515,7 @@ export class GameRoom extends DurableObject {
 
   async webSocketClose(ws) {
     try { ws.close(); } catch { /* already closing */ }
-    this.#broadcast({ type: 'players', list: this.#playerList() }, ws);
+    this.#broadcastPlayers(ws);
   }
 
   async webSocketError() {

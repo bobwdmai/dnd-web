@@ -3,8 +3,7 @@
 // publicly-reachable, unauthenticated game.
 
 const TIME_ZONE = 'America/New_York';
-const WEEKDAY_BUDGET = 8000; // Mon-Fri
-const WEEKEND_BUDGET = 1000; // Sat-Sun
+const DAILY_BUDGET = 30000; // every day of the week
 // Days (America/New_York, YYYY-MM-DD) with no cap at all — spending is still tracked, just never
 // refused. Deliberately date-specific so it expires on its own instead of needing to be undone.
 const UNCAPPED_DATES = new Set(['2026-09-19']);
@@ -17,10 +16,8 @@ function localDateKey(date) {
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
-/** Mon-Fri get the higher weekday budget; Sat/Sun drop to the weekend budget. */
-function dailyBudgetLimit(date) {
-  const weekday = new Intl.DateTimeFormat('en-US', { timeZone: TIME_ZONE, weekday: 'short' }).format(date);
-  return (weekday === 'Sat' || weekday === 'Sun') ? WEEKEND_BUDGET : WEEKDAY_BUDGET;
+function dailyBudgetLimit() {
+  return DAILY_BUDGET;
 }
 
 /** Returns { used, limit, exceeded }. Read-only — does not spend anything. */
@@ -29,7 +26,7 @@ export async function getBudgetStatus(env) {
   const dateKey = localDateKey(now);
   const key = `budget:${dateKey}`;
   const uncapped = UNCAPPED_DATES.has(dateKey);
-  const limit = uncapped ? Infinity : dailyBudgetLimit(now);
+  const limit = uncapped ? Infinity : dailyBudgetLimit();
   const used = Number((await env.ROOM_BUDGET.get(key)) || 0);
   return { used, limit, exceeded: !uncapped && used >= limit };
 }

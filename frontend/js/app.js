@@ -287,6 +287,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
         amOwner = msg.state.ownerName === playerName;
         renderAdventure(msg.state.adventure);
         renderCombat(msg.state.combat);
+        renderParty(msg.party);
         break;
       }
       case 'game-ended':
@@ -299,6 +300,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
         break;
       case 'players':
         playersListEl.textContent = msg.list.length ? msg.list.join(', ') : '—';
+        renderParty(msg.party);
         break;
       case 'player-said':
         appendMsg({ who: msg.name, text: msg.text, cls: 'dnd-player' });
@@ -374,6 +376,26 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
     newAdventureBtn.classList.toggle('dnd-hidden', adventureActive || !(roomCode === 'GLOBAL' || amOwner));
     chatInput.disabled = !adventureActive || gameEnded;
     chatInput.placeholder = adventureActive ? 'What do you do? (or /roll 1d20+5)' : 'This adventure is over.';
+  }
+
+  // Everyone in the room sees each player's character name, race and class — nothing else about it.
+  const partyListEl = document.getElementById('dnd-party-list');
+  function renderParty(party) {
+    if (!Array.isArray(party)) return;
+    partyListEl.innerHTML = '';
+    for (const member of party) {
+      const li = document.createElement('li');
+      const who = document.createElement('strong');
+      who.textContent = member.name || member.player;
+      li.append(who);
+      const detail = [member.race, member.class].filter(Boolean).join(' ');
+      const sub = document.createElement('span');
+      sub.textContent = member.name
+        ? `${detail ? ` — ${detail}` : ''}${member.name !== member.player ? ` (${member.player})` : ''}`
+        : ' — no character yet';
+      li.append(sub);
+      partyListEl.append(li);
+    }
   }
 
   function renderCombat(combat) {

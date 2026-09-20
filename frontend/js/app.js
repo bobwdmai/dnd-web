@@ -4,7 +4,9 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
 (() => {
   'use strict';
 
-  const WORKER_ORIGIN = 'https://dnd-dm.bob-mai.com';
+  // The local copy (see /local) sets these before loading this script: no accounts, own Worker.
+  const WORKER_ORIGIN = window.DND_WORKER_ORIGIN || 'https://dnd-dm.bob-mai.com';
+  const LOCAL = !!window.DND_LOCAL;
 
   // ---- DOM refs ---------------------------------------------------------
   const gate = document.getElementById('dnd-gate');
@@ -89,11 +91,11 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
   function applyAuthState() {
     const username = window.SiteAuth?.getUsername() || null;
 
-    createSoloNote.classList.toggle('dnd-hidden', !!username);
+    createSoloNote.classList.toggle('dnd-hidden', !!username || LOCAL);
     createNameInput.classList.toggle('dnd-hidden', !!username);
     createAccountNote.classList.toggle('dnd-hidden', !username);
     if (username) createAccountNote.textContent = `Playing as ${username}`;
-    createBtn.textContent = username ? 'Start a New Game' : 'Play Solo';
+    createBtn.textContent = username || LOCAL ? 'Start a New Game' : 'Play Solo';
 
     joinNameInput.classList.toggle('dnd-hidden', !!username);
     joinAccountNote.classList.toggle('dnd-hidden', !username);
@@ -102,7 +104,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
     globalNameInput.classList.toggle('dnd-hidden', !!username);
     globalAccountNote.classList.toggle('dnd-hidden', !username);
     if (username) globalAccountNote.textContent = `Playing as ${username}`;
-    globalBtn.textContent = username ? 'Join the Global Game' : 'Sign In to Join';
+    globalBtn.textContent = username || LOCAL ? 'Join the Global Game' : 'Sign In to Join';
   }
   applyAuthState();
   window.SiteAuth?.onChange(applyAuthState);
@@ -118,11 +120,11 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
       const res = await fetch(`${WORKER_ORIGIN}/api/create-room`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', ...(idToken ? { authorization: `Bearer ${idToken}` } : {}) },
-        body: JSON.stringify({ campaign: campaignInput.value.trim() || 'New Campaign', solo: !username })
+        body: JSON.stringify({ campaign: campaignInput.value.trim() || 'New Campaign', solo: !username && !LOCAL })
       });
       const data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error || 'Could not create a game.');
-      enterRoom(data.code, name, { solo: !username });
+      enterRoom(data.code, name, { solo: !username && !LOCAL });
     } catch (err) {
       setGateStatus(err.message, true);
       createBtn.disabled = false;
@@ -154,25 +156,28 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
 
   globalBtn.addEventListener('click', async () => {
     const username = window.SiteAuth?.getUsername() || null;
-    if (!username) {
+    if (!username && !LOCAL) {
       setGateStatus('Sign in using the button at the top of the page first.', true);
       return;
     }
+    const name = username || globalNameInput.value.trim();
+    if (!name) { globalNameInput.focus(); return; }
     globalBtn.disabled = true;
     setGateStatus('Joining the global game…');
     try {
-      const idToken = await window.SiteAuth.getIdToken();
+      const idToken = username ? await window.SiteAuth.getIdToken() : null;
       const res = await fetch(`${WORKER_ORIGIN}/api/global-room`, {
-        method: 'POST', headers: { authorization: `Bearer ${idToken}` }
+        method: 'POST', headers: idToken ? { authorization: `Bearer ${idToken}` } : {}
       });
       const data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error || 'Could not join the global game.');
-      enterRoom(data.code, username);
+      enterRoom(data.code, name);
     } catch (err) {
       setGateStatus(err.message, true);
       globalBtn.disabled = false;
     }
   });
+  globalNameInput.addEventListener('keydown', e => { if (e.key === 'Enter') globalBtn.click(); });
 
   function enterRoom(code, name, { solo = false } = {}) {
     roomCode = code;

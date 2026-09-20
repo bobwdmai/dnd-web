@@ -40,6 +40,8 @@ function getBearerToken(request) {
  *  null if there's no token or it doesn't resolve to a claimed username — callers decide
  *  whether that's an error (creating a real room, the Global Game) or fine (anonymous joins). */
 async function resolveVerifiedUsername(request, env) {
+  // Local mode has no accounts — everyone is allowed, so treat any caller as verified.
+  if (env.LOCAL_MODE) return 'local-player';
   return resolveUsernameFromToken(getBearerToken(request), env);
 }
 

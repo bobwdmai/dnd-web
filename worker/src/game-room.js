@@ -362,7 +362,7 @@ export class GameRoom extends DurableObject {
       // client can't forge who a valid ID token belongs to. Anonymous joins (no token) keep
       // today's free-text behavior, except the Global Game, which requires a verified identity.
       const verifiedName = await resolveVerifiedUsername(msg.idToken, this.env);
-      if (this.state.roomCode === 'GLOBAL' && !verifiedName) {
+      if (this.state.roomCode === 'GLOBAL' && !verifiedName && !this.env.LOCAL_MODE) {
         this.#send(ws, { type: 'error', error: 'Sign in to join the Global Game.' });
         return;
       }

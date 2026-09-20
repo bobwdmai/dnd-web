@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dragon's Mud (local)</title>
+  <style>:root { --header-height: 0px; } html, body { margin: 0; background: #14110f; }</style>
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body id="top" class="dnd-page">
+  <div class="dnd-app" id="dnd-app-root">
+
+    <div id="dnd-gate" class="dnd-gate">
+      <div class="dnd-gate-card">
+        <h1>🐉 Dragon's Mud</h1>
+        <p class="dnd-sub">An AI Dungeon Master, live rooms, real dice, real sound.</p>
+
+        <div id="dnd-continue-box" class="dnd-hidden">
+          <button type="button" id="dnd-continue-btn" class="dnd-primary"></button>
+        </div>
+
+        <div class="dnd-gate-tabs">
+          <button type="button" id="dnd-tab-create" class="active">New Game</button>
+          <button type="button" id="dnd-tab-join">Join Game</button>
+          <button type="button" id="dnd-tab-global">Global Game</button>
+        </div>
+
+        <div id="dnd-pane-create">
+          <p class="dnd-sub" id="dnd-create-solo-note">Local game — saved on this computer.</p>
+          <input type="text" id="dnd-campaign-input" placeholder="Campaign name (optional)" autocomplete="off">
+          <input type="text" id="dnd-create-name-input" placeholder="Your name" maxlength="40" autocomplete="off">
+          <p class="dnd-sub dnd-hidden" id="dnd-create-account-note"></p>
+          <button type="button" id="dnd-create-btn" class="dnd-primary">Play Solo</button>
+        </div>
+
+        <div id="dnd-pane-join" class="dnd-hidden">
+          <input type="text" id="dnd-code-input" class="dnd-code-input" placeholder="CODE" maxlength="8" autocomplete="off">
+          <input type="text" id="dnd-join-name-input" placeholder="Your name" maxlength="40" autocomplete="off">
+          <p class="dnd-sub dnd-hidden" id="dnd-join-account-note"></p>
+          <button type="button" id="dnd-join-btn" class="dnd-primary">Join Game</button>
+        </div>
+
+        <div id="dnd-pane-global" class="dnd-hidden">
+          <p class="dnd-sub">One shared, permanent world — everyone who picks this joins the same game.</p>
+          <input type="text" id="dnd-global-name-input" placeholder="Your name" maxlength="40" autocomplete="off">
+          <p class="dnd-sub dnd-hidden" id="dnd-global-account-note"></p>
+          <button type="button" id="dnd-global-btn" class="dnd-primary">Sign In to Join</button>
+        </div>
+
+        <p id="dnd-gate-status" class="dnd-gate-status"></p>
+      </div>
+    </div>
+
+    <div id="dnd-app" class="dnd-hidden" style="display:contents">
+      <header class="dnd-topbar">
+        <div class="dnd-topbar-inner">
+          <div class="dnd-brand">🐉 <span id="dnd-campaign-name">New Campaign</span></div>
+          <div class="dnd-room-badge">Code: <span id="dnd-room-badge"></span></div>
+          <div class="dnd-players">Party: <span id="dnd-players-list">—</span></div>
+          <div class="dnd-topbar-actions">
+            <button id="dnd-sfx-toggle" class="active" title="Toggle sound effects">🔊 SFX</button>
+            <button id="dnd-end-game-btn" class="dnd-hidden dnd-danger-btn" title="End the game for everyone">🏁 End Game</button>
+          </div>
+        </div>
+      </header>
+
+      <main class="dnd-layout">
+        <section class="dnd-chat-col">
+          <div id="dnd-log" class="dnd-log" aria-live="polite"></div>
+          <form id="dnd-chat-form" class="dnd-chat-form">
+            <input id="dnd-chat-input" type="text" placeholder="What do you do? (or /roll 1d20+5)" autocomplete="off">
+            <button type="submit">Send</button>
+          </form>
+        </section>
+
+        <section class="dnd-side-col">
+          <div class="dnd-panel" id="dnd-quest-panel">
+            <div class="dnd-panel-title">
+              Quest
+              <span class="dnd-panel-actions" id="dnd-quest-chapter"></span>
+            </div>
+            <div class="dnd-quest-title" id="dnd-quest-title"></div>
+            <div class="dnd-quest-objective" id="dnd-quest-objective"></div>
+            <div class="dnd-hidden" id="dnd-quest-end">
+              <p class="dnd-quest-summary" id="dnd-quest-summary"></p>
+              <button type="button" id="dnd-new-adventure-btn" class="dnd-hidden">Begin a new adventure</button>
+            </div>
+          </div>
+
+          <div class="dnd-panel dnd-hidden" id="dnd-combat-panel">
+            <div class="dnd-panel-title">
+              Combat
+              <span class="dnd-panel-actions" id="dnd-combat-round"></span>
+            </div>
+            <ol class="dnd-combat-order" id="dnd-combat-order"></ol>
+          </div>
+
+          <div class="dnd-panel">
+            <div class="dnd-panel-title">
+              Map
+              <span class="dnd-panel-actions">
+                <label class="dnd-draw-toggle"><input type="checkbox" id="dnd-draw-mode"> sketch mode</label>
+                <button id="dnd-map-clear-btn" title="Clear map">clear</button>
+              </span>
+            </div>
+            <canvas id="dnd-map-canvas" width="480" height="360"></canvas>
+          </div>
+
+          <div class="dnd-panel">
+            <div class="dnd-panel-title">
+              Character Sheet
+              <span class="dnd-panel-actions">
+                <button type="button" id="dnd-char-tab-upload" class="dnd-tab-btn active">Upload PDF</button>
+                <button type="button" id="dnd-char-tab-create" class="dnd-tab-btn">Create Your Own</button>
+              </span>
+            </div>
+
+            <form id="dnd-upload-form" class="dnd-upload-form">
+              <input type="file" id="dnd-pdf-input" accept="application/pdf">
+              <button type="submit">Upload &amp; AI-format</button>
+            </form>
+            <p id="dnd-upload-status" class="dnd-upload-status"></p>
+
+            <form id="dnd-create-char-form" class="dnd-create-char-form dnd-hidden">
+              <div class="dnd-cc-row">
+                <input type="text" id="cc-name" placeholder="Character name" required autocomplete="off">
+                <button type="button" id="cc-autofill" title="Fill in a random, rules-legal character">🎲 Autofill</button>
+              </div>
+              <div class="dnd-cc-row">
+                <select id="cc-race"><option value="">Race…</option></select>
+                <select id="cc-class"><option value="">Class…</option></select>
+              </div>
+              <div class="dnd-cc-row">
+                <label class="dnd-cc-field">Level<input type="number" id="cc-level" placeholder="Level" value="1" min="1" max="20"></label>
+                <select id="cc-background"><option value="">Background…</option></select>
+              </div>
+              <div class="dnd-cc-abilities">
+                <label>STR<input type="number" id="cc-str" value="10"></label>
+                <label>DEX<input type="number" id="cc-dex" value="10"></label>
+                <label>CON<input type="number" id="cc-con" value="10"></label>
+                <label>INT<input type="number" id="cc-int" value="10"></label>
+                <label>WIS<input type="number" id="cc-wis" value="10"></label>
+                <label>CHA<input type="number" id="cc-cha" value="10"></label>
+              </div>
+              <div class="dnd-cc-row">
+                <label class="dnd-cc-field">Max HP<input type="number" id="cc-hp" placeholder="Max HP" value="10" min="1"></label>
+                <label class="dnd-cc-field">Armor Class<input type="number" id="cc-ac" placeholder="Armor Class" value="10" min="1"></label>
+              </div>
+              <div class="dnd-cc-skills">
+                <div class="dnd-cc-skills-head">Skill proficiencies <span id="cc-skills-count">(pick a class first)</span></div>
+                <div id="cc-skills-box" class="dnd-cc-skills-box"></div>
+              </div>
+              <input type="text" id="cc-equipment" placeholder="Equipment (comma-separated)" autocomplete="off">
+              <textarea id="cc-notes" placeholder="Notes" rows="2"></textarea>
+              <button type="submit">Create Character</button>
+            </form>
+            <p id="dnd-create-status" class="dnd-upload-status"></p>
+
+            <div id="dnd-sheets" class="dnd-sheets"></div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+  </div>
+
+  <script>window.DND_LOCAL = true; window.DND_WORKER_ORIGIN = "http://localhost:8787";</script>
+  <script type="module" src="/js/app.js"></script>
+</body>
+</html>

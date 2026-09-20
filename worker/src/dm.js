@@ -408,12 +408,42 @@ function errMsg(err) {
 
 /** Thin wrapper around env.AI.run that unpacks the OpenAI-shaped response and tracks neuron spend. */
 async function runModel(env, model, messages, { tools, max_tokens } = {}) {
+  // Local mode: talk to Ollama (e.g. its cloud-hosted gpt-oss:20b) instead of Workers AI, so the
+  // game runs with no Cloudflare AI quota at all.
+  if (env.OLLAMA_HOST) return runOllama(env, messages, { tools, max_tokens });
+
   const result = await env.AI.run(model, { messages, tools, max_tokens: max_tokens || 512 });
   const message = result?.choices?.[0]?.message;
   if (!message) throw new Error('Workers AI returned an unexpected response shape.');
   const neurons = result?.usage?.neurons || 0;
   await spendNeurons(env, neurons);
   return { message, neurons };
+}
+
+async function runOllama(env, messages, { tools, max_tokens }) {
+  // Ollama wants tool-call arguments as objects; the tool-call recovery path stores them as strings.
+  const normalized = messages.map(m => (m.role === 'assistant' && Array.isArray(m.tool_calls))
+    ? { ...m, tool_calls: m.tool_calls.map(c => ({ ...c, function: { ...c.function, arguments: parseToolArgs(c.function?.arguments) } })) }
+    : m);
+  // Ollama also wants each tool result labeled with the tool's name, not just an id.
+  const nameById = {};
+  for (const m of normalized) for (const c of m.tool_calls || []) if (c.id) nameById[c.id] = c.function?.name;
+  for (const m of normalized) if (m.role === 'tool' && !m.tool_name) m.tool_name = nameById[m.tool_call_id] || undefined;
+  const res = await fetch(`${env.OLLAMA_HOST}/api/chat`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      model: env.OLLAMA_MODEL || 'gpt-oss:20b-cloud',
+      messages: normalized,
+      stream: false,
+      ...(tools ? { tools } : {}),
+      options: { temperature: 0.8, num_predict: max_tokens || 512 }
+    })
+  });
+  if (!res.ok) throw new Error(`Ollama request failed (${res.status}): ${(await res.text().catch(() => '')).slice(0, 200)}`);
+  const data = await res.json();
+  if (!data?.message) throw new Error('Ollama returned an unexpected response shape.');
+  return { message: data.message, neurons: 0 };
 }
 
 /**

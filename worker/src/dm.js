@@ -412,9 +412,16 @@ function errMsg(err) {
 
 /** Thin wrapper around env.AI.run that unpacks the OpenAI-shaped response and tracks neuron spend. */
 async function runModel(env, model, messages, { tools, max_tokens } = {}) {
-  // Local mode: talk to Ollama (e.g. its cloud-hosted gpt-oss:20b) instead of Workers AI, so the
-  // game runs with no Cloudflare AI quota at all.
-  if (env.OLLAMA_HOST) return runOllama(env, messages, { tools, max_tokens });
+  // Ollama: either a local daemon (OLLAMA_HOST, the local copy) or Ollama's cloud API directly
+  // (OLLAMA_API_KEY, no local machine needed). If the cloud call fails and Workers AI is bound,
+  // fall back to it so a hiccup at one provider doesn't stop the game.
+  if (env.OLLAMA_HOST || env.OLLAMA_API_KEY) {
+    try {
+      return await runOllama(env, messages, { tools, max_tokens });
+    } catch (err) {
+      if (!env.AI) throw err;
+    }
+  }
 
   const result = await env.AI.run(model, { messages, tools, max_tokens: max_tokens || 512 });
   const message = result?.choices?.[0]?.message;
@@ -433,11 +440,12 @@ async function runOllama(env, messages, { tools, max_tokens }) {
   const nameById = {};
   for (const m of normalized) for (const c of m.tool_calls || []) if (c.id) nameById[c.id] = c.function?.name;
   for (const m of normalized) if (m.role === 'tool' && !m.tool_name) m.tool_name = nameById[m.tool_call_id] || undefined;
-  const res = await fetch(`${env.OLLAMA_HOST}/api/chat`, {
+  const host = env.OLLAMA_HOST || 'https://ollama.com';
+  const res = await fetch(`${host}/api/chat`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...(env.OLLAMA_API_KEY ? { authorization: `Bearer ${env.OLLAMA_API_KEY}` } : {}) },
     body: JSON.stringify({
-      model: env.OLLAMA_MODEL || 'gpt-oss:20b-cloud',
+      model: env.OLLAMA_MODEL || (env.OLLAMA_HOST ? 'gpt-oss:20b-cloud' : 'gpt-oss:20b'),
       messages: normalized,
       stream: false,
       ...(tools ? { tools } : {}),

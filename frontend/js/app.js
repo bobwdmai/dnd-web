@@ -510,6 +510,26 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
 
   mapClearBtn.addEventListener('click', () => send({ type: 'map-clear' }));
 
+  // Full screen map: a fixed overlay (works everywhere, incl. phones), plus the browser's real
+  // fullscreen where available. Sketching still works — clicks are mapped by the canvas's
+  // on-screen size, so it doesn't matter how big it's scaled.
+  const mapPanel = document.getElementById('dnd-map-panel');
+  const mapFullBtn = document.getElementById('dnd-map-full-btn');
+  function setMapFull(on) {
+    mapPanel.classList.toggle('dnd-map-full', on);
+    mapFullBtn.textContent = on ? '✕' : '⛶';
+    mapFullBtn.title = on ? 'Exit full screen' : 'Full screen map';
+    if (on) mapPanel.requestFullscreen?.().catch(() => {});
+    else if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+  }
+  mapFullBtn.addEventListener('click', () => setMapFull(!mapPanel.classList.contains('dnd-map-full')));
+  document.addEventListener('fullscreenchange', () => {
+    if (!document.fullscreenElement && mapPanel.classList.contains('dnd-map-full')) setMapFull(false);
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && mapPanel.classList.contains('dnd-map-full')) setMapFull(false);
+  });
+
   let dragging = false, dragStart = null;
   canvas.addEventListener('mousedown', e => {
     if (!drawModeToggle.checked) return;

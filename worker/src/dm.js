@@ -380,7 +380,7 @@ function extractStrayEffectMentions(text) {
   // so widening this just means more candidate words get checked, not more risk of false strips.
   // A bare "effect: sword_clash" line is the tool call's argument written out as text — play it
   // (if it names a real effect) instead of just showing it or silently dropping the sound.
-  const withoutEffectLines = text.replace(/^[ \t]*[*_]*effect[*_]*[ \t]*[:=][ \t]*([a-z_ -]+?)[ \t]*$/gim, (full, word) => {
+  const withoutEffectLines = text.replace(/^[ \t]*[*_]*effect[*_]*[ \t]*[:=][ \t]*["'`]?([a-z_ -]+?)["'`]?[ \t]*,?[ \t]*$/gim, (full, word) => {
     const effect = resolveEffectName(word);
     if (effect) { extraEffects.push(effect); return ''; }
     return full;

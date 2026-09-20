@@ -109,9 +109,14 @@ Respond with ONLY a block in this exact format, nothing before or after it:
 [MAP]
 draw x1,y1 x2,y2 #hexcolor optional-note
 label x,y Some Label
+size 640 360
 [/MAP]
 
 Rules:
+- You also control the map canvas dimensions with an optional "size WIDTH HEIGHT" line (pixels, 240-1200;
+  default 480 360, about 24 grid units by 18). Pick a size that fits the place being drawn: a small
+  room 480 360, a long corridor or wide cavern 960 360, a tall tower 360 480, a big region or
+  overworld 1200 800. Only emit "size" when the shape needs to change; it is otherwise kept as-is.
 - Work fast and simple: pick round integer coordinates directly by eye (e.g. multiples of 5) and
   move on. Never compute trigonometry, angles, or circle/curve approximations — always approximate
   every room as a plain rectangle, regardless of how the DM described its shape (a "circular

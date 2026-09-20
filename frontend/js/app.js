@@ -272,6 +272,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
       case 'state': {
         campaignNameEl.textContent = msg.state.campaign || 'New Campaign';
         mapState = msg.state.map || { lines: [], labels: [] };
+        setMapSize(mapState.size);
         drawMap();
         log.innerHTML = '';
         pendingTurns = 0; // a fresh log means any earlier "thinking" indicator no longer applies
@@ -322,7 +323,8 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
         break;
       case 'map-ops':
         for (const op of msg.ops) {
-          if (op.type === 'clear') { mapState.lines = []; mapState.labels = []; }
+          if (op.type === 'size') { mapState.size = { w: op.w, h: op.h }; setMapSize(mapState.size); }
+          else if (op.type === 'clear') { mapState.lines = []; mapState.labels = []; }
           else if (op.type === 'line') mapState.lines.push(op);
           else if (op.type === 'label') mapState.labels.push(op);
         }
@@ -508,21 +510,15 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
     }
   }
 
-  // Map dimensions are a per-viewer view setting: map coordinates are grid-relative to the
-  // center, so resizing the canvas just shows more or less of the same world.
-  const mapSizeSel = document.getElementById('dnd-map-size');
-  function setMapSize(v) {
-    const m = /^(\d+)x(\d+)$/.exec(v);
-    if (!m) return;
-    canvas.width = +m[1]; canvas.height = +m[2];
-    canvas.style.aspectRatio = `${m[1]} / ${m[2]}`;
-    canvas.style.setProperty('--map-ar', String(m[1] / m[2]));
-    mapSizeSel.value = v;
-    try { localStorage.setItem('dnd-map-size', v); } catch {}
-    drawMap();
+  // The AI cartographer picks the map's dimensions (map.size); grid coordinates are
+  // center-relative, so resizing just shows more or less of the same world.
+  function setMapSize(size) {
+    const w = size?.w || 480, h = size?.h || 360;
+    if (canvas.width === w && canvas.height === h) return;
+    canvas.width = w; canvas.height = h;
+    canvas.style.aspectRatio = `${w} / ${h}`;
+    canvas.style.setProperty('--map-ar', String(w / h));
   }
-  mapSizeSel.addEventListener('change', () => setMapSize(mapSizeSel.value));
-  try { const saved = localStorage.getItem('dnd-map-size'); if (saved) setMapSize(saved); } catch {}
 
   mapClearBtn.addEventListener('click', () => send({ type: 'map-clear' }));
 

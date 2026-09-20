@@ -18,6 +18,13 @@ export function parseMapBlock(text) {
     const line = rawLine.trim();
     if (!line) continue;
 
+    const sizeM = line.match(/^size\s+(\d+)\s*[x, ]\s*(\d+)$/i);
+    if (sizeM) {
+      const clamp = n => Math.max(240, Math.min(1200, Math.round(+n / 10) * 10));
+      ops.push({ type: 'size', w: clamp(sizeM[1]), h: clamp(sizeM[2]) });
+      continue;
+    }
+
     if (/^clear$/i.test(line)) {
       ops.push({ type: 'clear' });
       continue;
@@ -57,6 +64,11 @@ export function applyOps(mapState, ops) {
       mapState.lines = [];
       mapState.labels = [];
       applied.push(op);
+    } else if (op.type === 'size') {
+      if (mapState.size?.w !== op.w || mapState.size?.h !== op.h) {
+        mapState.size = { w: op.w, h: op.h };
+        applied.push(op);
+      }
     } else if (op.type === 'line') {
       const entry = { x1: op.x1, y1: op.y1, x2: op.x2, y2: op.y2, color: op.color, note: op.note };
       const isDup = mapState.lines.some(l =>

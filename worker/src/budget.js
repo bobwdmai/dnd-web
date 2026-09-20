@@ -3,10 +3,6 @@
 // publicly-reachable, unauthenticated game.
 
 const TIME_ZONE = 'America/New_York';
-const DAILY_BUDGET = 30000; // every day of the week
-// Days (America/New_York, YYYY-MM-DD) with no cap at all — spending is still tracked, just never
-// refused. Deliberately date-specific so it expires on its own instead of needing to be undone.
-const UNCAPPED_DATES = new Set(['2026-09-19']);
 
 function localDateKey(date) {
   const formatter = new Intl.DateTimeFormat('en-US', {
@@ -16,19 +12,15 @@ function localDateKey(date) {
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
-function dailyBudgetLimit() {
-  return DAILY_BUDGET;
-}
-
 /** Returns { used, limit, exceeded }. Read-only — does not spend anything. */
 export async function getBudgetStatus(env) {
   const now = new Date();
   const dateKey = localDateKey(now);
   const key = `budget:${dateKey}`;
-  const uncapped = UNCAPPED_DATES.has(dateKey);
-  const limit = uncapped ? Infinity : dailyBudgetLimit();
+  // No cap: spending is still tracked (it's useful to see), but a turn is never refused for it.
+  const limit = Infinity;
   const used = Number((await env.ROOM_BUDGET.get(key)) || 0);
-  return { used, limit, exceeded: !uncapped && used >= limit };
+  return { used, limit, exceeded: false };
 }
 
 /**

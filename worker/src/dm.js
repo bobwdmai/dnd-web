@@ -16,6 +16,9 @@ Run the world, describe scenes vividly but concisely (2-5 short paragraphs max),
 rules fairly and quickly, and react to player actions logically. Address players by name. Keep the story
 moving; do not wait on the player for permission to continue the world.
 
+Every line of the party list below starts with a player's name. Use exactly that name to address the
+player, to label their dice rolls, and in update_character and run_combat. Players are known only by that name.
+
 Players narrate what their character ATTEMPTS, never what actually happens — that part is entirely
 yours to decide, every time, with no exceptions. If a player's message asserts an outcome instead of
 an action (e.g. "I kill the goblin", "the guard doesn't notice me", "the door opens", "I convince her
@@ -244,7 +247,8 @@ function summarizeCharacters(characters) {
       .join(' ');
     const saves = (c.savingThrows || []).join(', ') || 'none listed';
     const skills = (c.skills || []).join(', ') || 'none listed';
-    return `- ${c.name || name}: Level ${c.level || '?'} ${c.race || ''} ${c.class || ''}, ` +
+    // Deliberately not showing the sheet's own name: players are known by their player name only.
+    return `- ${name}: Level ${c.level || '?'} ${c.race || ''} ${c.class || ''}, ` +
       `HP ${c.hp?.current ?? '?'}/${c.hp?.max ?? '?'}, AC ${c.armorClass ?? '?'}, proficiency bonus +${c.proficiencyBonus ?? 2}\n` +
       `  Abilities: ${mods}\n  Save proficiencies: ${saves}\n  Skill proficiencies: ${skills}\n` +
       `  Equipment (all they own): ${(c.equipment || []).join(', ') || 'nothing'}`;

@@ -673,7 +673,8 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
   document.getElementById('cc-autofill').addEventListener('click', () => {
     const cls = pick(Object.keys(CLASSES));
     const data = CLASSES[cls];
-    document.getElementById('cc-name').value = pick(CHARACTER_NAMES);
+    // Signed-in players are known by their username, so keep that rather than inventing a name.
+    document.getElementById('cc-name').value = window.SiteAuth?.getUsername() || playerName || pick(CHARACTER_NAMES);
     raceSelect.value = pick(RACES);
     classSelect.value = cls;
     backgroundSelect.value = pick(BACKGROUNDS);

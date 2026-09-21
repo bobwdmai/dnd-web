@@ -651,7 +651,20 @@ export async function takeTurn(env, state, playerName, actionText, { opening = f
     rawNarrative = `(The DM stumbled: ${errMsg(err)})`;
   }
 
-  const stripped = stripToolMentions(parseMapBlock(rawNarrative).narrative);
+  // The model sometimes writes update_character's arguments as plain "key: value" lines instead of
+  // calling the tool. Apply them for real (so HP actually changes) and hide them from the chat.
+  let leakBlock = parseMapBlock(rawNarrative).narrative;
+  const leaked = {};
+  leakBlock = leakBlock.replace(/^[ \t]*(characterName|hpCurrent|hpMax|armorClass|reason)[ \t]*[:=][ \t]*["'`]?(.*?)["'`]?[ \t]*,?[ \t]*$/gim,
+    (full, key, val) => { leaked[key] = val; return ''; });
+  if (leaked.characterName) {
+    const args = { characterName: leaked.characterName, reason: leaked.reason };
+    for (const k of ['hpCurrent', 'hpMax', 'armorClass']) if (leaked[k] !== undefined && !isNaN(+leaked[k])) args[k] = +leaked[k];
+    const touched = new Set(characterUpdates);
+    try { executeTool(state, 'update_character', args, { rollResults: [], sfxRequests: [], characterUpdates: touched }); } catch { /* best effort */ }
+    characterUpdates = [...touched];
+  }
+  const stripped = stripToolMentions(leakBlock);
   const { cleanText, extraEffects } = extractStrayEffectMentions(stripped);
   // If stripping left nothing (the model's whole reply was a leaked tool-call artifact), show a
   // brief placeholder rather than a blank chat bubble — never make up story content here.

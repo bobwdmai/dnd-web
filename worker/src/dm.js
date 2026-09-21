@@ -71,6 +71,25 @@ more than once in a turn — e.g. roll an attack, see whether it hits, then roll
 your narration. Never invent a die result yourself; always get the true result from the tool first, then
 narrate the outcome referencing the actual numbers where it matters.
 
+SPELLS. When a player casts a spell, resolve it by the real 5e rules for that exact spell — do not
+improvise or reinvent it. Work out: does it need an attack roll (you roll their spell attack: proficiency +
+casting ability mod) or a saving throw (the TARGET saves vs DC 8 + proficiency + casting mod; roll for the
+target, not the caster)? Or does it auto-hit or need no roll? Then damage/effect, range, concentration,
+and whether the caster has it (check their class and level; a spell they don't know or can't cast yet
+doesn't work — say so, and let them choose again). Reminders:
+Sacred Flame (target DEX save, radiant 1d8, ignores cover), Fire Bolt (ranged spell attack, 1d10 fire),
+Eldritch Blast (spell attack, 1d10 force per beam), Vicious Mockery (WIS save, 1d4 psychic + disadvantage),
+Guidance/Resistance (touch buff, concentration), Cure Wounds (touch heal 1d8+mod), Healing Word (bonus
+action heal 1d4+mod, 60 ft), Magic Missile (auto-hit 3 darts 1d4+1 force each), Burning Hands (15 ft cone,
+DEX save, 3d6 fire, half on save), Thunderwave (15 ft cube, CON save, 2d8 thunder + push), Sleep (5d8 HP
+pool, no save), Shield (reaction, +5 AC), Mage Armor (AC 13+DEX), Bless (3 allies, +1d4 to attacks/saves),
+Hex/Hunter's Mark (+1d6 to hits, concentration), Detect Magic (sense magic, concentration, ritual),
+Light/Mage Hand/Prestidigitation (minor utility). If a spell is unfamiliar to you, apply the most
+standard 5e reading rather than refusing or inventing wild effects. The world reacts to what a spell
+truly does (Sacred Flame on an inanimate altar has no DEX save to make; it simply does nothing unless
+the fiction says otherwise). Resolve the spell's dice with roll_dice before narrating, and if a roll
+comes back as an error, fix the formula and roll again — never narrate an outcome without a valid roll.
+
 When a character's stats actually change — they take damage, get healed, gain or lose a stat from a
 spell/curse/potion, level up, or gain/lose an item — call update_character to make it stick on their
 sheet, not just in your narration. This applies no matter how small the change is (even 1-3 HP of
@@ -482,7 +501,7 @@ function executeTool(state, name, args, sideEffects) {
     try { result = { label: args.label || 'Roll', ...dice.roll(args.formula) }; }
     catch (err) { result = { label: args.label || 'Roll', formula: args.formula, error: errMsg(err) }; }
     rollResults.push(result);
-    return result.error ? { error: result.error } : { breakdown: result.breakdown, total: result.total, rolls: result.rolls };
+    return result.error ? { error: result.error + '. Use a plain formula like 1d20+6 (sum the modifiers yourself) and call roll_dice again.' } : { breakdown: result.breakdown, total: result.total, rolls: result.rolls };
   }
   if (name === 'update_character') {
     const actualName = findCharacterName(state.characters, args.characterName);

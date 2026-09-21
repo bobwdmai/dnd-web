@@ -442,6 +442,8 @@ export class GameRoom extends DurableObject {
       this.#sendStateTo(ws, name);
       this.#broadcastPlayers();
       this.#maybeOpen();
+      // Rooms started before illustrated maps existed (or whose first painting failed) get one now.
+      if (!this.state.mapArt && this.state.adventure?.opened && this.state.adventure.status === 'active') this.#queueMapArt();
       return;
     }
 
@@ -505,6 +507,11 @@ export class GameRoom extends DurableObject {
 
       this.#broadcast({ type: 'player-said', name: playerName, text: action });
 
+      // "Can you paint the map?" typed in chat should actually paint it, not just get a reply.
+      if (/\b(paint|draw|illustrat\w*|generate|render|show|see|make)\b[^.?!]*\bmap\b|\bmap\b[^.?!]*\b(paint|illustrat\w*|picture|image)\b/i.test(action)) {
+        const last = this.state.mapArt?.at ? Date.parse(this.state.mapArt.at) : 0;
+        if (Date.now() - last >= 60_000) this.#queueMapArt();
+      }
       await this.#queueTurn(playerName, action);
       return;
     }

@@ -1,5 +1,5 @@
 // NdM, optional keep-highest/lowest (advantage/disadvantage: 2d20kh1 / 2d20kl1), optional flat modifier.
-const FORMULA_RE = /^(\d*)d(\d+)(?:(kh|kl)(\d+))?([+-]\d+)?$/i;
+const FORMULA_RE = /^(\d*)d(\d+)(?:(kh|kl)(\d+))?((?:[+-]\d+)*)$/i;
 
 /** Unbiased random integer in [1, sides] using rejection sampling over the Web Crypto API. */
 function rollDie(sides) {
@@ -22,7 +22,7 @@ function parseFormula(formula) {
   const sides = parseInt(m[2], 10);
   const keepType = m[3] ? m[3].toLowerCase() : null;
   const keepCount = m[4] ? parseInt(m[4], 10) : null;
-  const modifier = m[5] ? parseInt(m[5], 10) : 0;
+  const modifier = m[5] ? m[5].match(/[+-]\d+/g).reduce((a, b) => a + parseInt(b, 10), 0) : 0; // "+4+2" sums
 
   if (count < 1 || count > 100 || sides < 2 || sides > 1000) return null;
   if (keepCount !== null && (keepCount < 1 || keepCount > count)) return null;

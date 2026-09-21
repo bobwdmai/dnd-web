@@ -273,6 +273,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
         campaignNameEl.textContent = msg.state.campaign || 'New Campaign';
         mapState = msg.state.map || { lines: [], labels: [] };
         setMapSize(mapState.size);
+        if (msg.state.music) setMood(msg.state.music);
         drawMap();
         log.innerHTML = '';
         pendingTurns = 0; // a fresh log means any earlier "thinking" indicator no longer applies
@@ -320,6 +321,9 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
         break;
       case 'sfx-played':
         msg.effects.forEach((effect, i) => setTimeout(() => playSfx(effect), i * 120));
+        break;
+      case 'music':
+        setMood(msg.mood);
         break;
       case 'map-ops':
         for (const op of msg.ops) {
@@ -942,7 +946,31 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
     arrow_whoosh: () => { noiseBurst(0.25, { filterFreq: 3000, gain: 0.2 }); tone(1200, 0.25, { type: 'sine', gain: 0.1, freqEnd: 300 }); },
     fire_crackle: () => { for (let i = 0; i < 6; i++) noiseBurst(0.05, { filterFreq: 1500 + Math.random() * 1500, gain: 0.08, delay: Math.random() * 0.5 }); },
     water_splash: () => { noiseBurst(0.3, { filterFreq: 1200, gain: 0.25 }); },
-    heartbeat: () => { tone(60, 0.15, { type: 'sine', gain: 0.3 }); tone(55, 0.15, { type: 'sine', gain: 0.25, delay: 0.22 }); }
+    heartbeat: () => { tone(60, 0.15, { type: 'sine', gain: 0.3 }); tone(55, 0.15, { type: 'sine', gain: 0.25, delay: 0.22 }); },
+    rain: () => { for (let i = 0; i < 14; i++) noiseBurst(0.12, { filterFreq: 5000, filterType: 'highpass', gain: 0.05, delay: Math.random() * 1.4 }); },
+    wind: () => { noiseBurst(1.6, { filterFreq: 500, filterType: 'bandpass', gain: 0.18 }); tone(300, 1.6, { type: 'sine', gain: 0.03, freqEnd: 450 }); },
+    bell: () => { tone(880, 1.4, { type: 'sine', gain: 0.22 }); tone(1320, 1.1, { type: 'sine', gain: 0.1 }); tone(2200, 0.7, { type: 'sine', gain: 0.05 }); },
+    spell_cast: () => { tone(300, 0.5, { type: 'sawtooth', gain: 0.08, freqEnd: 1400 }); [900, 1200, 1500, 1900].forEach((f, i) => tone(f, 0.18, { type: 'sine', gain: 0.12, delay: 0.3 + i * 0.05 })); },
+    heal: () => { [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.35, { type: 'sine', gain: 0.14, delay: i * 0.1 })); },
+    punch: () => { noiseBurst(0.09, { filterFreq: 500, gain: 0.4 }); tone(90, 0.12, { type: 'sine', gain: 0.35, freqEnd: 40 }); },
+    bow_twang: () => { tone(220, 0.25, { type: 'triangle', gain: 0.25, freqEnd: 140 }); noiseBurst(0.15, { filterFreq: 3500, gain: 0.12, delay: 0.05 }); },
+    shield_block: () => { noiseBurst(0.06, { filterFreq: 1500, gain: 0.3 }); tone(300, 0.15, { type: 'square', gain: 0.16, freqEnd: 180 }); tone(150, 0.2, { type: 'sine', gain: 0.25, delay: 0.02 }); },
+    trap_click: () => { tone(2500, 0.03, { type: 'square', gain: 0.18 }); tone(1200, 0.05, { type: 'square', gain: 0.18, delay: 0.25 }); noiseBurst(0.15, { filterFreq: 2500, gain: 0.15, delay: 0.3 }); },
+    door_slam: () => { noiseBurst(0.18, { filterFreq: 400, gain: 0.45 }); tone(70, 0.3, { type: 'sine', gain: 0.4, freqEnd: 35 }); },
+    lock_pick: () => { [0, 0.2, 0.45, 0.6].forEach(d => tone(1800 + Math.random() * 800, 0.03, { type: 'square', gain: 0.12, delay: d })); tone(700, 0.08, { type: 'square', gain: 0.15, delay: 0.85 }); },
+    gong: () => { tone(110, 2.2, { type: 'sine', gain: 0.3 }); tone(165, 1.8, { type: 'sine', gain: 0.15 }); tone(233, 1.4, { type: 'triangle', gain: 0.08 }); noiseBurst(0.3, { filterFreq: 1200, gain: 0.1 }); },
+    wolf_howl: () => { tone(380, 1.6, { type: 'sine', gain: 0.18, freqEnd: 620 }); tone(620, 1.2, { type: 'sine', gain: 0.14, delay: 0.7, freqEnd: 300 }); },
+    evil_laugh: () => { [0, 0.22, 0.44, 0.66].forEach((d, i) => tone(180 - i * 15, 0.18, { type: 'sawtooth', gain: 0.2, delay: d, freqEnd: 120 })); },
+    scream: () => { tone(900, 0.8, { type: 'sawtooth', gain: 0.14, freqEnd: 1500 }); tone(1300, 0.7, { type: 'square', gain: 0.06, delay: 0.1, freqEnd: 700 }); },
+    cheer: () => { noiseBurst(1.0, { filterFreq: 1800, filterType: 'bandpass', gain: 0.2 }); [523, 659, 784].forEach((f, i) => tone(f, 0.4, { type: 'triangle', gain: 0.1, delay: i * 0.1 })); },
+    dragon_roar: () => { tone(70, 1.4, { type: 'sawtooth', gain: 0.3, freqEnd: 40 }); tone(140, 1.2, { type: 'square', gain: 0.1, freqEnd: 60 }); noiseBurst(1.4, { filterFreq: 600, gain: 0.25 }); },
+    stone_grind: () => { noiseBurst(1.2, { filterFreq: 250, gain: 0.35 }); tone(55, 1.2, { type: 'sawtooth', gain: 0.1, freqEnd: 45 }); },
+    ghost_wail: () => { tone(500, 1.5, { type: 'sine', gain: 0.15, freqEnd: 800 }); tone(507, 1.5, { type: 'sine', gain: 0.12, freqEnd: 790 }); noiseBurst(1.5, { filterFreq: 1400, filterType: 'bandpass', gain: 0.06 }); },
+    level_up: () => { [392, 523, 659, 784, 1047].forEach((f, i) => tone(f, 0.25, { type: 'triangle', gain: 0.18, delay: i * 0.08 })); },
+    potion_drink: () => { [0, 0.15, 0.3].forEach(d => { tone(300, 0.1, { type: 'sine', gain: 0.18, delay: d, freqEnd: 500 }); }); noiseBurst(0.1, { filterFreq: 1500, gain: 0.08, delay: 0.5 }); },
+    rat_squeak: () => { tone(2200, 0.06, { type: 'square', gain: 0.1, freqEnd: 3000 }); tone(2600, 0.06, { type: 'square', gain: 0.1, delay: 0.1, freqEnd: 3400 }); },
+    bones_rattle: () => { for (let i = 0; i < 8; i++) noiseBurst(0.03, { filterFreq: 2500 + Math.random() * 2000, filterType: 'bandpass', gain: 0.2, delay: Math.random() * 0.5 }); },
+    glass_shatter: () => { noiseBurst(0.25, { filterFreq: 6000, filterType: 'highpass', gain: 0.3 }); for (let i = 0; i < 5; i++) tone(2500 + Math.random() * 3000, 0.08, { type: 'sine', gain: 0.08, delay: 0.05 + Math.random() * 0.3 }); }
   };
 
   function playSfx(effect) {
@@ -951,6 +979,130 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
     const fn = SFX_LIBRARY[effect];
     if (fn) fn();
   }
+
+
+  // ================================================================
+  // Background music: a small generative score (pads + arpeggio + bass/drums) per mood. The server
+  // picks the mood ('music' messages) so the whole table hears the same thing.
+  // ================================================================
+  const MUSIC_MOODS = {
+    calm:    { root: 196.0, scale: [0, 2, 4, 7, 9], bpm: 62, pad: 'sine', arp: 'triangle', chords: [[0, 4, 7], [-3, 0, 4], [-5, -1, 2], [-3, 0, 4]], arpPattern: [0, 2, 4, 2], arpGain: 0.05, padGain: 0.05 },
+    mystery: { root: 146.8, scale: [0, 2, 3, 7, 8], bpm: 54, pad: 'sine', arp: 'sine', chords: [[0, 3, 7], [-2, 2, 5], [-4, 0, 3], [-2, 2, 5]], arpPattern: [0, 3, 1, 4, 2], arpGain: 0.06, padGain: 0.055 },
+    tense:   { root: 130.8, scale: [0, 1, 3, 5, 6], bpm: 84, pad: 'sawtooth', arp: 'triangle', chords: [[0, 3, 6], [0, 3, 6], [-1, 2, 5], [0, 3, 6]], arpPattern: [0, 0, 1, 0, 2, 0], arpGain: 0.04, padGain: 0.03, bass: true },
+    battle:  { root: 146.8, scale: [0, 2, 3, 5, 7], bpm: 128, pad: 'sawtooth', arp: 'square', chords: [[0, 3, 7], [-2, 2, 5], [-4, 0, 3], [-5, -1, 2]], arpPattern: [0, 2, 4, 2, 3, 1, 4, 3], arpGain: 0.045, padGain: 0.03, bass: true, drums: true },
+    tavern:  { root: 220.0, scale: [0, 2, 4, 7, 9], bpm: 108, pad: 'triangle', arp: 'triangle', chords: [[0, 4, 7], [5, 9, 12], [7, 11, 14], [0, 4, 7]], arpPattern: [0, 2, 4, 2, 3, 1], arpGain: 0.09, padGain: 0.04, bass: true },
+    victory: { root: 261.6, scale: [0, 2, 4, 7, 9], bpm: 100, pad: 'triangle', arp: 'triangle', chords: [[0, 4, 7], [5, 9, 12], [7, 11, 14], [0, 4, 7]], arpPattern: [0, 2, 4, 5, 4, 2], arpGain: 0.08, padGain: 0.05 },
+    sorrow:  { root: 174.6, scale: [0, 2, 3, 7, 8], bpm: 48, pad: 'sine', arp: 'sine', chords: [[0, 3, 7], [-4, 0, 3], [-2, 2, 5], [-7, -4, 0]], arpPattern: [4, 2, 0, 2], arpGain: 0.05, padGain: 0.06 },
+    eerie:   { root: 116.5, scale: [0, 1, 4, 6, 7], bpm: 44, pad: 'sine', arp: 'sine', chords: [[0, 4, 7], [1, 5, 8], [0, 4, 7], [-1, 3, 6]], arpPattern: [0, 3, 1], arpGain: 0.04, padGain: 0.06, detune: true }
+  };
+  const semi = n => Math.pow(2, n / 12);
+  let musicEnabled = true;
+  let musicMood = 'calm';
+  let musicGain = null;
+  let musicTimer = null;
+  let nextBarTime = 0;
+  let barIndex = 0;
+
+  function musicNote(freq, t0, dur, { type = 'sine', gain = 0.05, attack = 0.02, detune = 0 } = {}) {
+    const osc = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    const lp = audioCtx.createBiquadFilter();
+    lp.type = 'lowpass'; lp.frequency.value = type === 'sine' ? 4000 : 1400;
+    osc.type = type; osc.frequency.value = freq; osc.detune.value = detune;
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.linearRampToValueAtTime(gain, t0 + attack);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    osc.connect(lp).connect(g).connect(musicGain);
+    osc.start(t0); osc.stop(t0 + dur + 0.05);
+  }
+
+  function musicNoise(t0, dur, freq, gain) {
+    const size = Math.floor(audioCtx.sampleRate * dur);
+    const buf = audioCtx.createBuffer(1, size, audioCtx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < size; i++) d[i] = Math.random() * 2 - 1;
+    const src = audioCtx.createBufferSource(); src.buffer = buf;
+    const f = audioCtx.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = freq;
+    const g = audioCtx.createGain();
+    g.gain.setValueAtTime(gain, t0); g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    src.connect(f).connect(g).connect(musicGain);
+    src.start(t0); src.stop(t0 + dur + 0.02);
+  }
+
+  function scheduleBar(m, t0) {
+    const beat = 60 / m.bpm;
+    const barLen = beat * 4;
+    const chord = m.chords[barIndex % m.chords.length];
+    // Pad: the chord held for the whole bar.
+    chord.forEach((deg, i) => musicNote(m.root * semi(deg), t0, barLen * 1.05, {
+      type: m.pad, gain: m.padGain, attack: barLen * 0.35, detune: m.detune ? (i - 1) * 18 : 0 }));
+    // Arpeggio on eighth notes, walking the mood's scale over the chord root.
+    const step = beat / 2;
+    for (let i = 0; i < 8; i++) {
+      const idx = m.arpPattern[(barIndex * 3 + i) % m.arpPattern.length];
+      const deg = chord[0] + m.scale[idx % m.scale.length] + (idx >= m.scale.length ? 12 : 0);
+      if (m.bpm < 60 && i % 2) continue; // sparse in slow moods
+      musicNote(m.root * 2 * semi(deg), t0 + i * step, step * 1.8, { type: m.arp, gain: m.arpGain, attack: 0.01 });
+    }
+    if (m.bass) for (let i = 0; i < 4; i++) musicNote(m.root / 2 * semi(chord[0]), t0 + i * beat, beat * 0.9, { type: 'triangle', gain: 0.11, attack: 0.01 });
+    if (m.drums) for (let i = 0; i < 8; i++) {
+      if (i % 2 === 0) { musicNote(70, t0 + i * step, 0.14, { type: 'sine', gain: 0.22, attack: 0.005 }); }
+      else musicNoise(t0 + i * step, 0.05, 6000, 0.05);
+    }
+    barIndex++;
+    return barLen;
+  }
+
+  // Looks a few seconds ahead so bars queue up gaplessly without a timer drifting.
+  function musicTick() {
+    if (!audioCtx || !musicEnabled) return;
+    const m = MUSIC_MOODS[musicMood] || MUSIC_MOODS.calm;
+    if (nextBarTime < audioCtx.currentTime) nextBarTime = audioCtx.currentTime + 0.1;
+    while (nextBarTime < audioCtx.currentTime + 3) nextBarTime += scheduleBar(m, nextBarTime);
+  }
+
+  function startMusic() {
+    if (!musicEnabled) return;
+    unlockAudio();
+    if (!audioCtx) return;
+    if (!musicGain) { musicGain = audioCtx.createGain(); musicGain.gain.value = 0.7; musicGain.connect(audioCtx.destination); }
+    if (musicTimer) return;
+    nextBarTime = 0; barIndex = 0;
+    musicTick();
+    musicTimer = setInterval(musicTick, 500);
+  }
+
+  function stopMusic() {
+    clearInterval(musicTimer); musicTimer = null;
+    if (musicGain) { // fade the queued notes out rather than cutting them
+      const g = musicGain; g.gain.setTargetAtTime(0, audioCtx.currentTime, 0.15);
+      musicGain = null; setTimeout(() => g.disconnect(), 1500);
+    }
+  }
+
+  function setMood(mood) {
+    if (!MUSIC_MOODS[mood] || mood === musicMood) return;
+    musicMood = mood;
+    if (musicTimer && musicGain) { // crossfade: fade the old bars, start the new mood on a fresh bus
+      const old = musicGain; old.gain.setTargetAtTime(0, audioCtx.currentTime, 0.6);
+      setTimeout(() => old.disconnect(), 4000);
+      musicGain = audioCtx.createGain(); musicGain.gain.value = 0; musicGain.connect(audioCtx.destination);
+      musicGain.gain.setTargetAtTime(0.7, audioCtx.currentTime, 0.6);
+      nextBarTime = 0; barIndex = 0; musicTick();
+    }
+  }
+
+  const musicToggleBtn = document.getElementById('dnd-music-toggle');
+  musicToggleBtn.addEventListener('click', () => {
+    musicEnabled = !musicEnabled;
+    musicToggleBtn.classList.toggle('active', musicEnabled);
+    musicToggleBtn.textContent = musicEnabled ? '🎵 Music' : '🔇 Music';
+    if (musicEnabled) startMusic(); else stopMusic();
+  });
+  // Browsers only allow audio after a gesture: the first click or keypress starts the score.
+  const firstGesture = () => { startMusic(); document.removeEventListener('pointerdown', firstGesture); document.removeEventListener('keydown', firstGesture); };
+  document.addEventListener('pointerdown', firstGesture);
+  document.addEventListener('keydown', firstGesture);
 
   selectTab('create');
   drawMap();

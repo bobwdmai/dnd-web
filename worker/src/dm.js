@@ -175,7 +175,10 @@ label 0,0 Goblin Den
 export const SFX_CATALOG = [
   'sword_clash', 'footsteps', 'door_creak', 'explosion', 'magic_sparkle', 'coin',
   'monster_growl', 'thunder', 'success_chime', 'failure_buzz', 'arrow_whoosh',
-  'fire_crackle', 'water_splash', 'heartbeat'
+  'fire_crackle', 'water_splash', 'heartbeat',
+  'rain', 'wind', 'bell', 'spell_cast', 'heal', 'punch', 'bow_twang', 'shield_block', 'trap_click',
+  'door_slam', 'lock_pick', 'gong', 'wolf_howl', 'evil_laugh', 'scream', 'cheer', 'dragon_roar',
+  'stone_grind', 'ghost_wail', 'level_up', 'potion_drink', 'rat_squeak', 'bones_rattle', 'glass_shatter'
 ];
 
 const ROLL_TOOL = {
@@ -622,6 +625,16 @@ async function runNarrator(env, state, initialMessages) {
     // for the narration rather than showing the players nothing.
     if (!String(message.content || '').trim() && iteration < MAX_TOOL_ITERATIONS - 1) {
       messages.push({ role: 'user', content: 'Now narrate what happens for the players, in the story.' });
+      continue;
+    }
+
+    // A damage roll that never reached anyone's HP would leave the sheet out of sync with the
+    // story — nudge once to apply it (or confirm it hit nobody) before narrating.
+    if (!sideEffects.damageNudged && !characterUpdates.size && iteration < MAX_TOOL_ITERATIONS - 1
+        && rollResults.some(r => !r.error && /damage|dmg|fall|trap/i.test(r.label || ''))) {
+      sideEffects.damageNudged = true;
+      messages.push({ role: 'assistant', content: message.content || '' });
+      messages.push({ role: 'user', content: 'You rolled damage. If it hurt a party member, call update_character now with their new hpCurrent (current HP minus the damage), then narrate. If it hurt no one, just narrate.' });
       continue;
     }
 

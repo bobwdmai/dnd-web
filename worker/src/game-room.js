@@ -1,3 +1,4 @@
+import { detectMood } from './music.js';
 import { DurableObject } from 'cloudflare:workers';
 import { takeTurn, formatCharacterSheet, findCharacterName } from './dm.js';
 import { resolveVerifiedUsername } from './firebase-auth.js';
@@ -20,6 +21,7 @@ function freshState(campaign, roomCode, ephemeral) {
     ended: false,
     endedAt: null,
     map: { lines: [], labels: [] },
+    music: 'calm',
     characters: {},
     history: [],
     adventure: newAdventure(),
@@ -196,6 +198,12 @@ export class GameRoom extends DurableObject {
         if (sfxRequests.length) this.#broadcast({ type: 'sfx-played', effects: sfxRequests });
         for (const name of characterUpdates) {
           this.#sendToPlayer(name, { type: 'character-updated', playerName: name, sheet: this.state.characters[name] });
+        }
+        const mood = detectMood(this.state, narrative);
+        if (mood !== this.state.music) {
+          this.state.music = mood;
+          this.#persist();
+          this.#broadcast({ type: 'music', mood });
         }
         if (structureChanged) this.#broadcast({ type: 'structure', adventure: this.state.adventure, combat: this.state.combat });
         this.#broadcast({ type: 'dm-said', text: narrative, budgetExceeded });

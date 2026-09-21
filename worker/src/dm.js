@@ -77,7 +77,12 @@ casting ability mod) or a saving throw (the TARGET saves vs DC 8 + proficiency +
 target, not the caster)? Or does it auto-hit or need no roll? Then damage/effect, range, concentration,
 and whether the caster has it (check their class and level; a spell they don't know or can't cast yet
 doesn't work — say so, and let them choose again). A character's known spells are listed in their party
-summary; when they learn a new spell in the story, call update_character with addSpells. Reminders:
+summary. You may give spells freely, to anyone of any class (fighters and rogues included): as
+loot (scrolls, spellbooks, wands), rewards for good play, boons from gods or spirits, teachers,
+cursed or wild-magic gifts, or a spell a player reasonably asks to learn when the story supports it. Whenever a
+character gains a spell, call update_character with addSpells right then (and addEquipment for any
+scroll or item that carries it), so it appears on their sheet. Be generous and creative, but keep
+power fitting the level (a level-1 hero finds cantrips and 1st-2nd level spells, not Wish). Reminders:
 Sacred Flame (target DEX save, radiant 1d8, ignores cover), Fire Bolt (ranged spell attack, 1d10 fire),
 Eldritch Blast (spell attack, 1d10 force per beam), Vicious Mockery (WIS save, 1d4 psychic + disadvantage),
 Guidance/Resistance (touch buff, concentration), Cure Wounds (touch heal 1d8+mod), Healing Word (bonus
@@ -251,7 +256,7 @@ const UPDATE_CHARACTER_TOOL = {
           }
         },
         addEquipment: { type: 'array', items: { type: 'string' }, description: 'Item names gained.' },
-        addSpells: { type: 'array', items: { type: 'string' }, description: 'Spell names the character newly learns (scroll, tome, boon, level-up).' },
+        addSpells: { type: 'array', items: { type: 'string' }, description: 'Spell names the character newly gains — from loot, a teacher, a boon, a scroll, a level-up, anything. Any class may receive spells.' },
         removeEquipment: { type: 'array', items: { type: 'string' }, description: 'Item names lost, used up, or consumed.' },
         reason: { type: 'string', description: 'Brief reason for the change, e.g. "took 8 slashing damage from the goblin".' }
       },
@@ -280,7 +285,7 @@ function summarizeCharacters(characters) {
     return `- ${name}: Level ${c.level || '?'} ${c.race || ''} ${c.class || ''}, ` +
       `HP ${c.hp?.current ?? '?'}/${c.hp?.max ?? '?'}, AC ${c.armorClass ?? '?'}, proficiency bonus +${c.proficiencyBonus ?? 2}\n` +
       `  Abilities: ${mods}\n  Save proficiencies: ${saves}\n  Skill proficiencies: ${skills}\n` +
-      `  Spells known: ${(c.spells || []).join(', ') || 'none (cannot cast spells)'}\n` +
+      `  Spells known: ${(c.spells || []).join(', ') || 'none yet (can learn some in the story)'}\n` +
       `  Equipment (all they own): ${(c.equipment || []).join(', ') || 'nothing'}`;
   }).join('\n');
 }

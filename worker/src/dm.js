@@ -4,7 +4,7 @@ import { spendNeurons, getBudgetStatus } from './budget.js';
 import { RUN_COMBAT_TOOL, ADVANCE_STORY_TOOL, runStructureTool, summarizeStructure, advanceCombat } from './adventure.js';
 
 // One model for everything (narration, map, PDF sheets) — gpt-oss-20b.
-const NARRATOR_MODEL = '@cf/openai/gpt-oss-20b';
+export const NARRATOR_MODEL = '@cf/openai/gpt-oss-20b';
 const MAX_TOOL_ITERATIONS = 8;
 // A function so it can sit up here while the tool definitions further down are still being evaluated.
 const narratorTools = () => [ROLL_TOOL, SFX_TOOL, UPDATE_CHARACTER_TOOL, RUN_COMBAT_TOOL, ADVANCE_STORY_TOOL];
@@ -309,10 +309,25 @@ function historyEntryToMessage(h) {
   return { role: 'user', content: `${h.name}: ${h.content}` };
 }
 
+/** The illustrated map's visible layout (so narration matches the picture) and the secrets that
+ *  only the DM knows. Secrets never leave the server — see #sendStateTo. */
+function summarizeMapArt(state) {
+  const art = state.mapArt;
+  if (!art) return '';
+  let out = `\n\nILLUSTRATED MAP the players can see: ${art.layout || ''}`;
+  if (art.secrets?.length) {
+    out += '\n\nSECRET MAP KNOWLEDGE — the characters do NOT know any of this. Never volunteer it. Reveal one ONLY when a ' +
+      'player really finds it (a fitting search/Investigation/Perception check that succeeds, or clever play), ' +
+      'hint at most with subtle atmosphere (a draft, scuffed stone, an odd echo), and narrate the discovery vividly when it happens:\n' +
+      art.secrets.map(s => `- ${s.name} — ${s.location}. Found by: ${s.how_to_find}`).join('\n');
+  }
+  return out;
+}
+
 function contextMessage(state) {
   return {
     role: 'system',
-    content: `Campaign: ${state.campaign}\n\n${summarizeStructure(state)}\n\nParty:\n${summarizeCharacters(state.characters)}\n\n${summarizeMap(state.map)}`
+    content: `Campaign: ${state.campaign}\n\n${summarizeStructure(state)}\n\nParty:\n${summarizeCharacters(state.characters)}\n\n${summarizeMap(state.map)}${summarizeMapArt(state)}`
   };
 }
 
@@ -446,7 +461,7 @@ function errMsg(err) {
 }
 
 /** Thin wrapper around env.AI.run that unpacks the OpenAI-shaped response and tracks neuron spend. */
-async function runModel(env, model, messages, { tools, max_tokens } = {}) {
+export async function runModel(env, model, messages, { tools, max_tokens } = {}) {
   // Ollama: either a local daemon (OLLAMA_HOST, the local copy) or Ollama's cloud API directly
   // (OLLAMA_API_KEY, no local machine needed). If the cloud call fails and Workers AI is bound,
   // fall back to it so a hiccup at one provider doesn't stop the game.

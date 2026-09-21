@@ -274,6 +274,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
         mapState = msg.state.map || { lines: [], labels: [] };
         setMapSize(mapState.size);
         if (msg.state.music) setMood(msg.state.music);
+        setMapArt(msg.state.mapArt?.version || 0);
         drawMap();
         log.innerHTML = '';
         pendingTurns = 0; // a fresh log means any earlier "thinking" indicator no longer applies
@@ -321,6 +322,13 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
         break;
       case 'sfx-played':
         msg.effects.forEach((effect, i) => setTimeout(() => playSfx(effect), i * 120));
+        break;
+      case 'map-art':
+        setMapArt(msg.version);
+        break;
+      case 'map-art-status':
+        mapArtStatus(msg);
+        if (msg.status === 'failed') appendMsg({ text: `The map painter failed: ${msg.error}`, cls: 'dnd-error' });
         break;
       case 'music':
         setMood(msg.mood);
@@ -545,6 +553,37 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape' && mapPanel.classList.contains('dnd-map-full')) setMapFull(false);
   });
+
+
+  // Illustrated map: painted server-side by an image model directed by the DM. Secret passages are
+  // never in the picture or sent to the browser — the DM only reveals them through play.
+  const mapArtImg = document.getElementById('dnd-map-art');
+  const mapPaintBtn = document.getElementById('dnd-map-paint-btn');
+  const mapViewBtn = document.getElementById('dnd-map-view-btn');
+  let mapArtVersion = 0, mapView = 'art';
+  function applyMapView() {
+    const showArt = mapArtVersion > 0 && mapView === 'art';
+    mapArtImg.classList.toggle('dnd-hidden', !showArt);
+    canvas.classList.toggle('dnd-hidden', showArt);
+    mapViewBtn.classList.toggle('dnd-hidden', mapArtVersion === 0);
+    mapViewBtn.textContent = showArt ? '✏ Sketch' : '🖼 Art';
+  }
+  function setMapArt(version) {
+    if (!version) { mapArtVersion = 0; applyMapView(); return; }
+    mapArtVersion = version;
+    mapArtImg.src = `${WORKER_ORIGIN}/api/room/${encodeURIComponent(roomCode)}/map-art?v=${version}`;
+    mapView = 'art';
+    mapPaintBtn.disabled = false; mapPaintBtn.textContent = '🎨 Repaint';
+    applyMapView();
+  }
+  mapViewBtn.addEventListener('click', () => { mapView = mapView === 'art' ? 'sketch' : 'art'; applyMapView(); });
+  drawModeToggle.addEventListener('change', () => { if (drawModeToggle.checked) { mapView = 'sketch'; applyMapView(); } });
+  mapPaintBtn.addEventListener('click', () => { send({ type: 'generate-map-art' }); });
+  mapArtImg.addEventListener('click', () => { if (!mapPanel.classList.contains('dnd-map-full')) setMapFull(true); });
+  function mapArtStatus(msg) {
+    if (msg.status === 'painting') { mapPaintBtn.disabled = true; mapPaintBtn.textContent = '🎨 Painting…'; }
+    else { mapPaintBtn.disabled = false; mapPaintBtn.textContent = mapArtVersion ? '🎨 Repaint' : '🎨 Paint'; }
+  }
 
   let dragging = false, dragStart = null;
   canvas.addEventListener('mousedown', e => {

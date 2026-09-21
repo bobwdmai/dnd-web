@@ -106,10 +106,13 @@
               Map
               <span class="dnd-panel-actions">
                 <label class="dnd-draw-toggle"><input type="checkbox" id="dnd-draw-mode"> sketch mode</label>
+                <button type="button" id="dnd-map-paint-btn" title="Have the artist paint a detailed illustrated map">🎨 Paint</button>
+                <button type="button" id="dnd-map-view-btn" class="dnd-hidden" title="Switch between illustrated and sketch map">✏ Sketch</button>
                 <button id="dnd-map-clear-btn" title="Clear map">clear</button>
                 <button type="button" id="dnd-map-full-btn" title="Full screen map">⛶</button>
               </span>
             </div>
+            <img id="dnd-map-art" class="dnd-map-art dnd-hidden" alt="Illustrated map">
             <canvas id="dnd-map-canvas" width="480" height="360"></canvas>
           </div>
 

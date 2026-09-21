@@ -1,4 +1,5 @@
 export { GameRoom } from './game-room.js';
+import { b64ToBytes } from './mapart.js';
 import { resolveVerifiedUsername as resolveUsernameFromToken } from './firebase-auth.js';
 
 const ALLOWED_ORIGINS = new Set([
@@ -171,6 +172,17 @@ async function handle(request, env) {
       const stub = env.GAME_ROOM.getByName(code);
       const status = await stub.fetch('https://do/status').then(r => r.json());
       return json(request, status);
+    }
+
+    // GET /api/room/:code/map-art -> the room's illustrated map image (stored in KV)
+    const artMatch = url.pathname.match(/^\/api\/room\/([A-Za-z0-9]+)\/map-art$/);
+    if (artMatch && request.method === 'GET') {
+      const b64 = await env.ROOM_REGISTRY.get(`mapart:${normalizeCode(artMatch[1])}`);
+      if (!b64) return json(request, { error: 'No map yet.' }, 404);
+      const bytes = b64ToBytes(b64);
+      const png = bytes[0] === 0x89 && bytes[1] === 0x50;
+      return new Response(bytes, { headers: { 'content-type': png ? 'image/png' : 'image/jpeg',
+        'cache-control': 'public, max-age=3600', ...corsHeaders(request) } });
     }
 
     // POST /api/room/:code/character { playerName, text } -> AI-formatted character sheet

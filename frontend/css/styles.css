@@ -262,3 +262,6 @@ body.dnd-page .header-nav { max-width: none; }
 .dnd-map-full #dnd-map-canvas { display: block; margin: 0 auto; width: min(100%, calc((100dvh - 90px) * var(--map-ar, 1.3333))); height: auto; }
 
 .dnd-cc-spell-head { font-weight: 600; margin-top: 4px; opacity: .8; }
+
+.dnd-map-art { display: block; width: 100%; height: auto; border-radius: 6px; cursor: zoom-in; }
+.dnd-map-full .dnd-map-art { margin: 0 auto; width: auto; max-width: 100%; max-height: calc(100dvh - 90px); object-fit: contain; cursor: default; }

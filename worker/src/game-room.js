@@ -1,4 +1,5 @@
 import { detectMood } from './music.js';
+import { generateMapArt, b64ToBytes } from './mapart.js';
 import { DurableObject } from 'cloudflare:workers';
 import { takeTurn, formatCharacterSheet, findCharacterName } from './dm.js';
 import { resolveVerifiedUsername } from './firebase-auth.js';
@@ -79,6 +80,7 @@ function sanitizeSheet(raw, playerName) {
 }
 
 export class GameRoom extends DurableObject {
+  #artBusy = false;
   #turnQueue = Promise.resolve(); // serializes takeTurn() calls (see #handleChat)
 
   constructor(ctx, env) {
@@ -170,7 +172,9 @@ export class GameRoom extends DurableObject {
   }
 
   #sendStateTo(ws, name) {
-    this.#send(ws, { type: 'state', state: { ...this.state, characters: this.#ownCharacterView(name) }, party: this.#publicParty() });
+    // The map's secret passages are DM-only knowledge: strip them (and the raw layout) before anything reaches a client.
+    const mapArt = this.state.mapArt ? { version: this.state.mapArt.version, at: this.state.mapArt.at } : null;
+    this.#send(ws, { type: 'state', state: { ...this.state, mapArt, characters: this.#ownCharacterView(name) }, party: this.#publicParty() });
   }
 
   /** Runs one DM turn behind the queue (see below) and broadcasts everything it produced. */
@@ -222,6 +226,31 @@ export class GameRoom extends DurableObject {
     adv.opened = true; // set before queueing so two near-simultaneous joins can't both open
     this.#persist();
     this.#queueTurn('', OPENING_INSTRUCTION, { opening: true });
+    this.#queueMapArt();
+  }
+
+  /** Paints the illustrated map in the background (never blocks a turn) and stores the image in KV;
+   *  the DO keeps only its version number, layout, and DM-only secrets. */
+  #queueMapArt() {
+    if (this.#artBusy) return;
+    this.#artBusy = true;
+    this.#broadcast({ type: 'map-art-status', status: 'painting' });
+    const job = (async () => {
+      try {
+        const art = await generateMapArt(this.env, this.state);
+        const code = this.state.roomCode || 'room';
+        await this.env.ROOM_REGISTRY.put(`mapart:${code}`, art.imageB64, { expirationTtl: 60 * 60 * 24 * 30 });
+        this.state.mapArt = { version: (this.state.mapArt?.version || 0) + 1, at: new Date().toISOString(),
+          layout: art.layout, rooms: art.rooms, secrets: art.secrets };
+        this.#persist();
+        this.#broadcast({ type: 'map-art', version: this.state.mapArt.version });
+      } catch (err) {
+        this.#broadcast({ type: 'map-art-status', status: 'failed', error: errMsg(err) });
+      } finally {
+        this.#artBusy = false;
+      }
+    })();
+    this.ctx.waitUntil(job);
   }
 
   /** The one thing about a character everyone sees: who it is (name, race, class). Stats, HP,
@@ -419,6 +448,14 @@ export class GameRoom extends DurableObject {
     const attachment = ws.deserializeAttachment();
     const playerName = attachment?.name || 'Adventurer';
 
+    if (msg.type === 'generate-map-art') {
+      if (this.state.ended) return;
+      const last = this.state.mapArt?.at ? Date.parse(this.state.mapArt.at) : 0;
+      if (Date.now() - last < 60_000) { this.#send(ws, { type: 'error', error: 'The map was just painted — give the cartographer a minute.' }); return; }
+      this.#queueMapArt();
+      return;
+    }
+
     if (msg.type === 'end-game') {
       if (this.state.roomCode === 'GLOBAL') {
         this.#send(ws, { type: 'error', error: 'The global game is shared and can\'t be ended.' });
@@ -488,6 +525,7 @@ export class GameRoom extends DurableObject {
       this.state.combat = newCombat();
       this.state.history = [];
       this.state.map = { lines: [], labels: [] };
+      this.state.mapArt = null; // the next chapter's opening paints a fresh map (see #maybeOpen)
       // Characters carry over, fully healed for the fresh start.
       for (const sheet of Object.values(this.state.characters)) {
         if (sheet?.hp) sheet.hp.current = sheet.hp.max;

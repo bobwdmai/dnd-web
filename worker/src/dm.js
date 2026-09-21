@@ -324,6 +324,7 @@ function summarizeMapArt(state) {
   const art = state.mapArt;
   if (!art) return '';
   let out = `\n\nILLUSTRATED MAP the players can see: ${art.layout || ''}`;
+  if (art.seen) out += `\nWhat is actually drawn on the painting (as seen by a viewer; treat as real): ${art.seen}`;
   if (art.secrets?.length) {
     out += '\n\nSECRET MAP KNOWLEDGE — the characters do NOT know any of this. Never volunteer it. Reveal one ONLY when a ' +
       'player really finds it (a fitting search/Investigation/Perception check that succeeds, or clever play), ' +

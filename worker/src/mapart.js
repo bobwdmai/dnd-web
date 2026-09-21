@@ -70,7 +70,27 @@ async function paint(env, prompt) {
 export async function generateMapArt(env, state) {
   const design = await designMap(env, state);
   const imageB64 = await paint(env, paintPrompt(design.layout));
-  return { imageB64, ...design };
+  const seen = await describePainting(env, imageB64);
+  return { imageB64, seen, ...design };
+}
+
+const VISION_MODELS = ['@cf/meta/llama-3.2-11b-vision-instruct', '@cf/llava-hf/llava-1.5-7b-hf'];
+
+/** Lets the DM "see" the painting: a vision model lists what is actually drawn (chests, doors,
+ *  furniture, water, bones...) and where, since the painter always adds details the layout text lacks. */
+async function describePainting(env, b64) {
+  const prompt = 'This is a top-down fantasy map. List every notable object and feature you can see and where it is ' +
+    '(north/south/east/west/center, or which room): treasure chests, doors, tables, chairs, barrels, torches, water, ' +
+    'bones or skeletons, statues, stairs, bridges, plants. Be concrete and complete. Plain prose, no preamble.';
+  const bytes = [...b64ToBytes(b64)];
+  for (const model of VISION_MODELS) {
+    try {
+      const out = await env.AI.run(model, { image: bytes, prompt, max_tokens: 500 });
+      const text = String(out?.description || out?.response || '').trim();
+      if (text) return text.slice(0, 1500);
+    } catch { /* try the next model */ }
+  }
+  return '';
 }
 
 export function b64ToBytes(b64) {

@@ -241,9 +241,9 @@ export class GameRoom extends DurableObject {
         const code = this.state.roomCode || 'room';
         await this.env.ROOM_REGISTRY.put(`mapart:${code}`, art.imageB64, { expirationTtl: 60 * 60 * 24 * 30 });
         this.state.mapArt = { version: (this.state.mapArt?.version || 0) + 1, at: new Date().toISOString(),
-          layout: art.layout, rooms: art.rooms, secrets: art.secrets };
+          layout: art.layout, seen: art.seen, rooms: art.rooms, secrets: art.secrets };
         this.#persist();
-        this.#broadcast({ type: 'map-art', version: this.state.mapArt.version });
+        this.#broadcast({ type: 'map-art', version: this.state.mapArt.version, described: !!art.seen });
       } catch (err) {
         this.#broadcast({ type: 'map-art-status', status: 'failed', error: errMsg(err) });
       } finally {

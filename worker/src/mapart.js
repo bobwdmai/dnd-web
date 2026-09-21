@@ -10,7 +10,7 @@ painter's instructions in any way (do not mention them, hint at them, or draw th
 
 Reply with ONLY this JSON, nothing else:
 {
-  "visible_layout": "One dense paragraph describing every visible feature, room, corridor, landmark, terrain and decoration on the map, with positions (north, center, west wing...).",
+  "visible_layout": "One dense paragraph describing every visible feature (include 2-4 treasure chests or loot spots and any monsters' lairs, with positions), room, corridor, landmark, terrain and decoration on the map, with positions (north, center, west wing...).",
   "rooms": ["short names of the main visible areas"],
   "secrets": [{"name": "...", "location": "where it is, relative to the visible rooms", "how_to_find": "what reveals or opens it"}]
 }`;

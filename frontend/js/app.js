@@ -698,6 +698,64 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
   classSelect.addEventListener('change', renderSkillChoices);
   createCharForm.addEventListener('reset', () => setTimeout(renderSkillChoices, 0));
 
+  // Spell picker: level-1 slots' worth of real 5e spells per casting class. quota = [cantrips, level-1
+  // spells] at level 1; each extra character level allows one more level-1 spell.
+  const SPELLS = {
+    Bard: { quota: [2, 4], cantrips: ['Vicious Mockery', 'Minor Illusion', 'Mage Hand', 'Prestidigitation', 'Light'],
+      l1: ['Healing Word', 'Cure Wounds', 'Dissonant Whispers', 'Faerie Fire', 'Sleep', 'Thunderwave', 'Charm Person', 'Disguise Self'] },
+    Cleric: { quota: [3, 2], cantrips: ['Sacred Flame', 'Guidance', 'Light', 'Spare the Dying', 'Thaumaturgy', 'Resistance'],
+      l1: ['Cure Wounds', 'Healing Word', 'Bless', 'Guiding Bolt', 'Shield of Faith', 'Detect Magic', 'Command', 'Sanctuary'] },
+    Druid: { quota: [2, 2], cantrips: ['Druidcraft', 'Produce Flame', 'Shillelagh', 'Guidance', 'Thorn Whip'],
+      l1: ['Cure Wounds', 'Healing Word', 'Entangle', 'Faerie Fire', 'Goodberry', 'Thunderwave', 'Speak with Animals', 'Fog Cloud'] },
+    Sorcerer: { quota: [4, 2], cantrips: ['Fire Bolt', 'Ray of Frost', 'Shocking Grasp', 'Mage Hand', 'Light', 'Prestidigitation', 'Minor Illusion'],
+      l1: ['Magic Missile', 'Shield', 'Burning Hands', 'Sleep', 'Chromatic Orb', 'Mage Armor', 'Thunderwave', 'Charm Person'] },
+    Warlock: { quota: [2, 2], cantrips: ['Eldritch Blast', 'Chill Touch', 'Mage Hand', 'Minor Illusion', 'Prestidigitation'],
+      l1: ['Hex', 'Armor of Agathys', 'Hellish Rebuke', 'Charm Person', 'Witch Bolt', 'Arms of Hadar'] },
+    Wizard: { quota: [3, 6], cantrips: ['Fire Bolt', 'Ray of Frost', 'Mage Hand', 'Light', 'Prestidigitation', 'Minor Illusion', 'Shocking Grasp'],
+      l1: ['Magic Missile', 'Shield', 'Mage Armor', 'Sleep', 'Burning Hands', 'Detect Magic', 'Thunderwave', 'Find Familiar', 'Identify', 'Charm Person'] }
+  };
+  const spellsBox = document.getElementById('cc-spells-box');
+  const spellsCount = document.getElementById('cc-spells-count');
+  function spellQuotas() {
+    const d = SPELLS[classSelect.value];
+    if (!d) return { c: 0, l: 0 };
+    const level = Math.min(Math.max(parseInt(levelInput.value, 10) || 1, 1), 20);
+    return { c: d.quota[0], l: Math.min(d.l1.length, d.quota[1] + level - 1) };
+  }
+  function pickedSpells(kind) { return [...spellsBox.querySelectorAll(`input[data-kind="${kind}"]:checked`)].map(i => i.value); }
+  function updateSpellLimits() {
+    const q = spellQuotas();
+    const c = pickedSpells('c').length, l = pickedSpells('l').length;
+    spellsCount.textContent = SPELLS[classSelect.value] ? `(cantrips ${c}/${q.c}, level 1 ${l}/${q.l})` : '(this class has no spells at level 1)';
+    for (const box of spellsBox.querySelectorAll('input')) {
+      const [n, max] = box.dataset.kind === 'c' ? [c, q.c] : [l, q.l];
+      box.disabled = !box.checked && n >= max;
+    }
+  }
+  function renderSpellChoices() {
+    const d = SPELLS[classSelect.value];
+    spellsBox.innerHTML = '';
+    for (const [kind, title, list] of [['c', 'Cantrips', d?.cantrips || []], ['l', 'Level 1', d?.l1 || []]]) {
+      if (!list.length) continue;
+      const h = document.createElement('div');
+      h.className = 'dnd-cc-spell-head';
+      h.textContent = title;
+      spellsBox.append(h);
+      for (const spell of list) {
+        const label = document.createElement('label');
+        const box = document.createElement('input');
+        box.type = 'checkbox'; box.value = spell; box.dataset.kind = kind;
+        box.addEventListener('change', updateSpellLimits);
+        label.append(box, ` ${spell}`);
+        spellsBox.append(label);
+      }
+    }
+    updateSpellLimits();
+  }
+  classSelect.addEventListener('change', renderSpellChoices);
+  levelInput.addEventListener('input', updateSpellLimits);
+  createCharForm.addEventListener('reset', () => setTimeout(renderSpellChoices, 0));
+
   const pick = list => list[Math.floor(Math.random() * list.length)];
 
   // A random but rules-legal character: standard array ordered by the class's priorities, HP from
@@ -723,6 +781,16 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
     const shuffled = [...data.skills].sort(() => Math.random() - 0.5).slice(0, data.quota);
     for (const box of skillsBox.querySelectorAll('input')) box.checked = shuffled.includes(box.value);
     updateSkillLimits();
+
+    renderSpellChoices();
+    const sp = SPELLS[cls];
+    if (sp) {
+      const q = spellQuotas();
+      const chosen = [...sp.cantrips.slice().sort(() => Math.random() - 0.5).slice(0, q.c),
+                      ...sp.l1.slice().sort(() => Math.random() - 0.5).slice(0, q.l)];
+      for (const box of spellsBox.querySelectorAll('input')) box.checked = chosen.includes(box.value);
+      updateSpellLimits();
+    }
   });
 
   createCharForm.addEventListener('submit', async e => {
@@ -753,7 +821,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
       skills: pickedSkills().slice(0, skillQuota()),
       equipment: splitList(document.getElementById('cc-equipment').value),
       features: [],
-      spells: [],
+      spells: [...pickedSpells('c'), ...pickedSpells('l')],
       notes: document.getElementById('cc-notes').value.trim()
     };
 

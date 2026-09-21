@@ -76,7 +76,8 @@ improvise or reinvent it. Work out: does it need an attack roll (you roll their 
 casting ability mod) or a saving throw (the TARGET saves vs DC 8 + proficiency + casting mod; roll for the
 target, not the caster)? Or does it auto-hit or need no roll? Then damage/effect, range, concentration,
 and whether the caster has it (check their class and level; a spell they don't know or can't cast yet
-doesn't work — say so, and let them choose again). Reminders:
+doesn't work — say so, and let them choose again). A character's known spells are listed in their party
+summary; when they learn a new spell in the story, call update_character with addSpells. Reminders:
 Sacred Flame (target DEX save, radiant 1d8, ignores cover), Fire Bolt (ranged spell attack, 1d10 fire),
 Eldritch Blast (spell attack, 1d10 force per beam), Vicious Mockery (WIS save, 1d4 psychic + disadvantage),
 Guidance/Resistance (touch buff, concentration), Cure Wounds (touch heal 1d8+mod), Healing Word (bonus
@@ -247,6 +248,7 @@ const UPDATE_CHARACTER_TOOL = {
           }
         },
         addEquipment: { type: 'array', items: { type: 'string' }, description: 'Item names gained.' },
+        addSpells: { type: 'array', items: { type: 'string' }, description: 'Spell names the character newly learns (scroll, tome, boon, level-up).' },
         removeEquipment: { type: 'array', items: { type: 'string' }, description: 'Item names lost, used up, or consumed.' },
         reason: { type: 'string', description: 'Brief reason for the change, e.g. "took 8 slashing damage from the goblin".' }
       },
@@ -275,6 +277,7 @@ function summarizeCharacters(characters) {
     return `- ${name}: Level ${c.level || '?'} ${c.race || ''} ${c.class || ''}, ` +
       `HP ${c.hp?.current ?? '?'}/${c.hp?.max ?? '?'}, AC ${c.armorClass ?? '?'}, proficiency bonus +${c.proficiencyBonus ?? 2}\n` +
       `  Abilities: ${mods}\n  Save proficiencies: ${saves}\n  Skill proficiencies: ${skills}\n` +
+      `  Spells known: ${(c.spells || []).join(', ') || 'none (cannot cast spells)'}\n` +
       `  Equipment (all they own): ${(c.equipment || []).join(', ') || 'nothing'}`;
   }).join('\n');
 }
@@ -521,6 +524,14 @@ function executeTool(state, name, args, sideEffects) {
       for (const item of args.addEquipment) {
         if (typeof item === 'string' && item.trim() && !sheet.equipment.includes(item.trim())) {
           sheet.equipment.push(item.trim());
+        }
+      }
+    }
+    if (Array.isArray(args.addSpells)) {
+      if (!Array.isArray(sheet.spells)) sheet.spells = [];
+      for (const spell of args.addSpells) {
+        if (typeof spell === 'string' && spell.trim() && !sheet.spells.some(x => x.toLowerCase() === spell.trim().toLowerCase())) {
+          sheet.spells.push(spell.trim().slice(0, 60));
         }
       }
     }

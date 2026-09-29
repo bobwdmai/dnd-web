@@ -189,7 +189,11 @@ function runCombat(state, args, sideEffects) {
     };
     sideEffects.structureChanged = true;
     sideEffects.combatStarted = true;
-    return { started: true, round: 1, order: state.combat.order, current: state.combat.order[0].name };
+    const firstPc = state.combat.order.find(c => findCharacterName(state.characters, c.name));
+    const before = state.combat.order.slice(0, state.combat.order.indexOf(firstPc)).map(c => c.name);
+    return { started: true, round: 1, order: state.combat.order, firstPlayerTurn: firstPc?.name || null,
+      note: (before.length ? `${before.join(', ')} act before ${firstPc?.name}: narrate what they do NOW (roll their attacks), then hand the turn to ${firstPc?.name}. ` : '') +
+        'Enemies never wait for the players to ask what they do; resolve enemy turns yourself, in this same reply.' };
   }
 
   if (!combat.active) return { error: 'Combat is not active.' };

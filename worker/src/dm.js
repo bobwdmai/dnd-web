@@ -637,6 +637,14 @@ function detectLeakedToolCall(content) {
   return null;
 }
 
+/** True for replies that are the DM talking about the game rather than narrating it: wholly
+ *  parenthesised asides, or "I am / As the DM ..." openers. */
+function isDmCommentary(text) {
+  const t = String(text || '').trim();
+  return /^\(([^()]|\([^()]*\))*\)$/.test(t) ||
+    /^\(?\s*(i am|i'm|i will|as the dm|as your dm|the dm (is|has|will))\b/i.test(t);
+}
+
 async function runNarrator(env, state, initialMessages) {
   const messages = [...initialMessages];
   const rollResults = [];
@@ -703,7 +711,7 @@ async function runNarrator(env, state, initialMessages) {
     // Some models answer with commentary about being the DM ("(I am waiting for...)", "As the DM, I
     // have set the scene") instead of the story. Ask once for the actual narration.
     if (!sideEffects.metaNudged && iteration < MAX_TOOL_ITERATIONS - 1
-        && /^\s*\(?\s*(i am|i'm|i will|as the dm|as your dm|the dm (is|has|will))\b/i.test(String(message.content || ''))) {
+        && isDmCommentary(message.content)) {
       sideEffects.metaNudged = true;
       messages.push({ role: 'assistant', content: message.content || '' });
       messages.push({ role: 'user', content: 'That was commentary, not the story. Write the actual narration of the scene for the players now, in the story, ending with what they can do.' });
@@ -767,7 +775,7 @@ export async function takeTurn(env, state, playerName, actionText, { opening = f
   let { cleanText, extraEffects } = extractStrayEffectMentions(stripped);
   // Nothing readable survived (tool-only reply, or everything was stripped): ask once, tool-free,
   // for the actual story beat instead of showing a placeholder.
-  if (!/[A-Za-z]{3}/.test(cleanText) && convo && !rawNarrative.startsWith('(The DM stumbled')) {
+  if ((!/[A-Za-z]{3}/.test(cleanText) || isDmCommentary(cleanText)) && convo && !rawNarrative.startsWith('(The DM stumbled')) {
     try {
       const { message } = await runModel(env, NARRATOR_MODEL,
         [...convo, { role: 'user', content: 'Now write the narration of what just happened, as plain story text for the players. No tool calls, no lists of options unless it fits.' }],

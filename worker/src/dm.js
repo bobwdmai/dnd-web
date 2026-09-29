@@ -8,7 +8,18 @@ import { RUN_COMBAT_TOOL, ADVANCE_STORY_TOOL, runStructureTool, summarizeStructu
 export const NARRATOR_MODEL = '@cf/google/gemma-4-26b-a4b-it';
 const MAX_TOOL_ITERATIONS = 8;
 // A function so it can sit up here while the tool definitions further down are still being evaluated.
-const narratorTools = () => [ROLL_TOOL, SFX_TOOL, UPDATE_CHARACTER_TOOL, RUN_COMBAT_TOOL, ADVANCE_STORY_TOOL];
+const PAINT_MAP_TOOL = {
+  type: 'function',
+  function: {
+    name: 'paint_map',
+    description:
+      'Commission a new illustrated map from the artist. Call it when the party arrives somewhere that deserves its own map ' +
+      '(a new dungeon, town, building, region, or a major change to the surroundings) or when a player asks to see the map. ' +
+      'Do not call it every turn — most turns the current map is still right. It appears in the Map panel by itself.',
+    parameters: { type: 'object', properties: { reason: { type: 'string', description: 'Where or what the new map shows.' } }, required: ['reason'] }
+  }
+};
+const narratorTools = () => [ROLL_TOOL, SFX_TOOL, UPDATE_CHARACTER_TOOL, RUN_COMBAT_TOOL, ADVANCE_STORY_TOOL, PAINT_MAP_TOOL];
 const NARRATOR_MAX_TOKENS = 2000; // gpt-oss spends part of this on hidden reasoning before any text or tool call
 const MAP_MAX_TOKENS = 1600; // gpt-oss's hidden reasoning can otherwise eat the whole budget before any [MAP] text comes out
 
@@ -72,10 +83,11 @@ more than once in a turn — e.g. roll an attack, see whether it hits, then roll
 your narration. Never invent a die result yourself; always get the true result from the tool first, then
 narrate the outcome referencing the actual numbers where it matters.
 
-ILLUSTRATED MAP. A separate artist paints a detailed illustrated map of the location for the players; it
-appears in the Map panel (players can also press its 🎨 Paint button to repaint). If a player asks for the map
-or to paint it, tell them the artist is painting it and it will appear in the Map panel — never say you
-can't make or show a map. Never describe the map as unavailable.
+ILLUSTRATED MAP. A separate artist paints a detailed illustrated map of the location; it appears in the Map
+panel. YOU decide when it is painted: the opening map is automatic, and afterwards you call paint_map when the
+party reaches a genuinely new place (a new dungeon level, building, town, region) or a player asks to see the
+map. Not every turn. When you call it, mention in the story that the map is being drawn. Never say you can't
+make or show a map.
 The painting is real: players can see it and you cannot, and it always shows more than the text layout you
 were given (chests, furniture, torches, bridges, statues, water). When a player points to something on the
 map ("there's a chest on the map"), treat it as genuinely present in the world: place it in the scene, help
@@ -537,6 +549,7 @@ async function runOllama(env, messages, { tools, max_tokens }) {
 function executeTool(state, name, args, sideEffects) {
   const { sfxRequests, characterUpdates } = sideEffects;
   const { rollResults } = sideEffects;
+  if (name === 'paint_map') { sideEffects.paintMap = String(args.reason || 'a new area').slice(0, 200); return { commissioned: true }; }
   if (name === 'run_combat' || name === 'advance_story') return runStructureTool(state, name, args, sideEffects);
   if (name === 'play_sound_effect') {
     const effect = resolveEffectName(args.effect);
@@ -689,7 +702,7 @@ async function runNarrator(env, state, initialMessages) {
       continue;
     }
 
-    return { narrative: message.content || '', rollResults, sfxRequests, characterUpdates: [...characterUpdates], structureChanged: sideEffects.structureChanged, combatStarted: sideEffects.combatStarted };
+    return { narrative: message.content || '', rollResults, sfxRequests, characterUpdates: [...characterUpdates], structureChanged: sideEffects.structureChanged, combatStarted: sideEffects.combatStarted, paintMap: sideEffects.paintMap || null };
   }
 
   return {
@@ -713,7 +726,7 @@ export async function takeTurn(env, state, playerName, actionText, { opening = f
 
   if (!opening) state.history.push({ role: 'user', name: playerName, content: actionText, ts: new Date().toISOString() });
 
-  let rawNarrative = '', rollResults = [], sfxRequests = [], characterUpdates = [], structureChanged = false, combatStarted = false;
+  let rawNarrative = '', rollResults = [], sfxRequests = [], characterUpdates = [], structureChanged = false, combatStarted = false, paintMap = null;
   try {
     const result = await runNarrator(env, state, buildMessages(state, playerName, actionText, opening));
     rawNarrative = result.narrative;
@@ -722,6 +735,7 @@ export async function takeTurn(env, state, playerName, actionText, { opening = f
     characterUpdates = result.characterUpdates;
     structureChanged = result.structureChanged;
     combatStarted = result.combatStarted;
+    paintMap = result.paintMap;
   } catch (err) {
     rawNarrative = `(The DM stumbled: ${errMsg(err)})`;
   }
@@ -767,7 +781,7 @@ export async function takeTurn(env, state, playerName, actionText, { opening = f
     mapOps = []; // map generation is best-effort; a cartographer failure shouldn't fail the turn
   }
 
-  return { narrative, rollResults, sfxRequests, mapOps, characterUpdates, structureChanged, budgetExceeded: false };
+  return { narrative, rollResults, sfxRequests, mapOps, characterUpdates, structureChanged, paintMap, budgetExceeded: false };
 }
 
 const SHEET_SCHEMA_HINT = `{

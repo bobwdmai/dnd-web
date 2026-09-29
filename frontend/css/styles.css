@@ -265,3 +265,5 @@ body.dnd-page .header-nav { max-width: none; }
 
 .dnd-map-art { display: block; width: 100%; height: auto; border-radius: 6px; cursor: zoom-in; }
 .dnd-map-full .dnd-map-art { margin: 0 auto; width: auto; max-width: 100%; max-height: calc(100dvh - 90px); object-fit: contain; cursor: default; }
+
+.dnd-map-painting .dnd-panel-title::after { content: '  🎨 painting…'; font-weight: 400; opacity: .7; }

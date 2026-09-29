@@ -23,11 +23,11 @@ function parseJson(text) {
 
 /** The DM's own "artist direction": the model designs the location and its secrets, and only the
  *  visible half of that design is ever handed to the image model. */
-export async function designMap(env, state) {
+export async function designMap(env, state, focus) {
   const adv = state.adventure || {};
   const chapter = adv.chapters?.[adv.chapter];
   const brief = `Campaign: ${state.campaign}\nAdventure: ${adv.title || 'unknown'}\nHook: ${adv.hook || ''}\n` +
-    `Current chapter: ${chapter?.title || chapter || ''}`;
+    `Current chapter: ${chapter?.title || chapter || ''}` + (focus ? `\nThis map must show: ${focus}` : '');
   let design = null;
   try {
     const { message } = await runModel(env, NARRATOR_MODEL,
@@ -67,8 +67,8 @@ async function paint(env, prompt) {
 }
 
 /** Designs and paints the map. Returns { imageB64, secrets, rooms, layout }. */
-export async function generateMapArt(env, state) {
-  const design = await designMap(env, state);
+export async function generateMapArt(env, state, focus) {
+  const design = await designMap(env, state, focus);
   const imageB64 = await paint(env, paintPrompt(design.layout));
   const seen = await describePainting(env, imageB64);
   return { imageB64, seen, ...design };

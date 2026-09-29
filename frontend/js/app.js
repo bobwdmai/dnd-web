@@ -42,8 +42,6 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
 
   const canvas = document.getElementById('dnd-map-canvas');
   const ctx = canvas.getContext('2d');
-  const drawModeToggle = document.getElementById('dnd-draw-mode');
-  const mapClearBtn = document.getElementById('dnd-map-clear-btn');
 
   const uploadForm = document.getElementById('dnd-upload-form');
   const pdfInput = document.getElementById('dnd-pdf-input');
@@ -532,7 +530,6 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
     canvas.style.setProperty('--map-ar', String(w / h));
   }
 
-  mapClearBtn.addEventListener('click', () => send({ type: 'map-clear' }));
 
   // Full screen map: a fixed overlay (works everywhere, incl. phones), plus the browser's real
   // fullscreen where available. Sketching still works — clicks are mapped by the canvas's
@@ -558,47 +555,23 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
   // Illustrated map: painted server-side by an image model directed by the DM. Secret passages are
   // never in the picture or sent to the browser — the DM only reveals them through play.
   const mapArtImg = document.getElementById('dnd-map-art');
-  const mapPaintBtn = document.getElementById('dnd-map-paint-btn');
-  const mapViewBtn = document.getElementById('dnd-map-view-btn');
-  let mapArtVersion = 0, mapView = 'art';
+  let mapArtVersion = 0;
   function applyMapView() {
-    const showArt = mapArtVersion > 0 && mapView === 'art';
+    const showArt = mapArtVersion > 0;
     mapArtImg.classList.toggle('dnd-hidden', !showArt);
     canvas.classList.toggle('dnd-hidden', showArt);
-    mapViewBtn.classList.toggle('dnd-hidden', mapArtVersion === 0);
-    mapViewBtn.textContent = showArt ? '✏ Sketch' : '🖼 Art';
   }
   function setMapArt(version) {
     if (!version) { mapArtVersion = 0; applyMapView(); return; }
     mapArtVersion = version;
     mapArtImg.src = `${WORKER_ORIGIN}/api/room/${encodeURIComponent(roomCode)}/map-art?v=${version}`;
-    mapView = 'art';
-    mapPaintBtn.disabled = false; mapPaintBtn.textContent = '🎨 Repaint';
     applyMapView();
   }
-  mapViewBtn.addEventListener('click', () => { mapView = mapView === 'art' ? 'sketch' : 'art'; applyMapView(); });
-  drawModeToggle.addEventListener('change', () => { if (drawModeToggle.checked) { mapView = 'sketch'; applyMapView(); } });
-  mapPaintBtn.addEventListener('click', () => { send({ type: 'generate-map-art' }); });
   mapArtImg.addEventListener('click', () => { if (!mapPanel.classList.contains('dnd-map-full')) setMapFull(true); });
   function mapArtStatus(msg) {
-    if (msg.status === 'painting') { mapPaintBtn.disabled = true; mapPaintBtn.textContent = '🎨 Painting…'; }
-    else { mapPaintBtn.disabled = false; mapPaintBtn.textContent = mapArtVersion ? '🎨 Repaint' : '🎨 Paint'; }
+    mapPanel.classList.toggle('dnd-map-painting', msg.status === 'painting');
   }
 
-  let dragging = false, dragStart = null;
-  canvas.addEventListener('mousedown', e => {
-    if (!drawModeToggle.checked) return;
-    dragging = true;
-    const rect = canvas.getBoundingClientRect();
-    dragStart = toGrid((e.clientX - rect.left) * (canvas.width / rect.width), (e.clientY - rect.top) * (canvas.height / rect.height));
-  });
-  canvas.addEventListener('mouseup', e => {
-    if (!dragging) return;
-    dragging = false;
-    const rect = canvas.getBoundingClientRect();
-    const end = toGrid((e.clientX - rect.left) * (canvas.width / rect.width), (e.clientY - rect.top) * (canvas.height / rect.height));
-    send({ type: 'map-draw', line: { x1: Math.round(dragStart.x), y1: Math.round(dragStart.y), x2: Math.round(end.x), y2: Math.round(end.y), color: '#7fb0c9' } });
-  });
 
   // ================================================================
   // Character sheet upload: extract PDF text in-browser (pdf.js), then ask the

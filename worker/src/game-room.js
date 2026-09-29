@@ -186,7 +186,7 @@ export class GameRoom extends DurableObject {
     // Chaining onto a queue forces turns to run one at a time, in the order they arrived.
     this.#turnQueue = this.#turnQueue.then(async () => {
       try {
-        const { narrative, rollResults, sfxRequests, mapOps, characterUpdates, structureChanged, budgetExceeded } =
+        const { narrative, rollResults, sfxRequests, mapOps, characterUpdates, structureChanged, paintMap, budgetExceeded } =
           await takeTurn(this.env, this.state, playerName, action, opts);
         // A failed opening (AI error, quota) must not leave the room with a broken first message
         // and no way to retry — undo it so the next join tries the opening scene again.
@@ -202,6 +202,10 @@ export class GameRoom extends DurableObject {
         if (sfxRequests.length) this.#broadcast({ type: 'sfx-played', effects: sfxRequests });
         for (const name of characterUpdates) {
           this.#sendToPlayer(name, { type: 'character-updated', playerName: name, sheet: this.state.characters[name] });
+        }
+        if (paintMap) {
+          const last = this.state.mapArt?.at ? Date.parse(this.state.mapArt.at) : 0;
+          if (Date.now() - last >= 60_000) this.#queueMapArt(paintMap);
         }
         const mood = detectMood(this.state, narrative);
         if (mood !== this.state.music) {
@@ -231,13 +235,13 @@ export class GameRoom extends DurableObject {
 
   /** Paints the illustrated map in the background (never blocks a turn) and stores the image in KV;
    *  the DO keeps only its version number, layout, and DM-only secrets. */
-  #queueMapArt() {
+  #queueMapArt(focus) {
     if (this.#artBusy) return;
     this.#artBusy = true;
     this.#broadcast({ type: 'map-art-status', status: 'painting' });
     const job = (async () => {
       try {
-        const art = await generateMapArt(this.env, this.state);
+        const art = await generateMapArt(this.env, this.state, focus);
         const code = this.state.roomCode || 'room';
         await this.env.ROOM_REGISTRY.put(`mapart:${code}`, art.imageB64, { expirationTtl: 60 * 60 * 24 * 30 });
         this.state.mapArt = { version: (this.state.mapArt?.version || 0) + 1, at: new Date().toISOString(),
@@ -450,14 +454,6 @@ export class GameRoom extends DurableObject {
     const attachment = ws.deserializeAttachment();
     const playerName = attachment?.name || 'Adventurer';
 
-    if (msg.type === 'generate-map-art') {
-      if (this.state.ended) return;
-      const last = this.state.mapArt?.at ? Date.parse(this.state.mapArt.at) : 0;
-      if (Date.now() - last < 60_000) { this.#send(ws, { type: 'error', error: 'The map was just painted — give the cartographer a minute.' }); return; }
-      this.#queueMapArt();
-      return;
-    }
-
     if (msg.type === 'end-game') {
       if (this.state.roomCode === 'GLOBAL') {
         this.#send(ws, { type: 'error', error: 'The global game is shared and can\'t be ended.' });
@@ -507,11 +503,6 @@ export class GameRoom extends DurableObject {
 
       this.#broadcast({ type: 'player-said', name: playerName, text: action });
 
-      // "Can you paint the map?" typed in chat should actually paint it, not just get a reply.
-      if (/\b(paint|draw|illustrat\w*|generate|render|show|see|make)\b[^.?!]*\bmap\b|\bmap\b[^.?!]*\b(paint|illustrat\w*|picture|image)\b/i.test(action)) {
-        const last = this.state.mapArt?.at ? Date.parse(this.state.mapArt.at) : 0;
-        if (Date.now() - last >= 60_000) this.#queueMapArt();
-      }
       await this.#queueTurn(playerName, action);
       return;
     }

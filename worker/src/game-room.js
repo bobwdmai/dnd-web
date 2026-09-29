@@ -33,7 +33,7 @@ function freshState(campaign, roomCode, ephemeral) {
 const OPENING_INSTRUCTION =
   '[The adventure begins. Open with a vivid opening scene built from the Adventure premise and the ' +
   'current chapter in your context: place the party in the scene, introduce the hook, and end by giving ' +
-  'them a clear first choice or question. Do not ask them to describe themselves or their characters.]';
+  'them a clear first choice or question. Do not ask them to describe themselves or their characters. Write the scene itself, in the story, as 2-4 paragraphs of narration; never comment on what you are doing.]';
 
 function errMsg(err) {
   if (err instanceof Error) return err.message;

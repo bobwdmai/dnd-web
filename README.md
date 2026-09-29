@@ -16,7 +16,7 @@ server to run and no API keys shipped to the browser.
   messages between connected players over WebSockets (Hibernation API — idle rooms cost nothing to keep
   open).
 - **The DM**: `worker/src/dm.js` prompts [Workers AI](https://developers.cloudflare.com/workers-ai/)
-  (`@cf/openai/gpt-oss-20b`) with three real tools — `roll_dice`, `play_sound_effect`, and
+  (`gemma4:31b` on Ollama Cloud, falling back to `@cf/google/gemma-4-26b-a4b-it`) with three real tools — `roll_dice`, `play_sound_effect`, and
   `update_character` — so the model requests a roll, a sound cue, or a stat change and gets a true
   result back rather than inventing one, then narrates the outcome. A second, focused call turns the
   narration into simple line-segment map updates.

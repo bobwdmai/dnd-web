@@ -3,8 +3,9 @@ import { parseMapBlock, applyOps } from './map-commands.js';
 import { spendNeurons, getBudgetStatus } from './budget.js';
 import { RUN_COMBAT_TOOL, ADVANCE_STORY_TOOL, runStructureTool, summarizeStructure, advanceCombat } from './adventure.js';
 
-// One model for everything (narration, map, PDF sheets) — gpt-oss-20b.
-export const NARRATOR_MODEL = '@cf/openai/gpt-oss-20b';
+// One model family for everything (narration, map, PDF sheets): Gemma. Ollama is the primary
+// provider (gemma4:31b); Workers AI's Gemma is the standby whenever Ollama is failing.
+export const NARRATOR_MODEL = '@cf/google/gemma-4-26b-a4b-it';
 const MAX_TOOL_ITERATIONS = 8;
 // A function so it can sit up here while the tool definitions further down are still being evaluated.
 const narratorTools = () => [ROLL_TOOL, SFX_TOOL, UPDATE_CHARACTER_TOOL, RUN_COMBAT_TOOL, ADVANCE_STORY_TOOL];
@@ -471,21 +472,31 @@ function errMsg(err) {
 }
 
 /** Thin wrapper around env.AI.run that unpacks the OpenAI-shaped response and tracks neuron spend. */
+// Ollama mode is preferred. When it errors we switch to Cloudflare (Workers AI) and keep using it for
+// a short cooldown, then try Ollama again on the next request — so a healthy Ollama takes over
+// again by itself, and an unhealthy one doesn't add a failed round trip to every call.
+const OLLAMA_RETRY_MS = 60_000;
+let ollamaDownUntil = 0;
+
 export async function runModel(env, model, messages, { tools, max_tokens } = {}) {
-  // Ollama: either a local daemon (OLLAMA_HOST, the local copy) or Ollama's cloud API directly
-  // (OLLAMA_API_KEY, no local machine needed). If the cloud call fails and Workers AI is bound,
-  // fall back to it so a hiccup at one provider doesn't stop the game.
-  if (env.OLLAMA_HOST || env.OLLAMA_API_KEY) {
+  const ollamaConfigured = !!(env.OLLAMA_HOST || env.OLLAMA_API_KEY);
+  if (ollamaConfigured && (Date.now() >= ollamaDownUntil || !env.AI)) {
     try {
-      return await runOllama(env, messages, { tools, max_tokens });
+      const out = await runOllama(env, messages, { tools, max_tokens });
+      ollamaDownUntil = 0; // healthy (again)
+      return out;
     } catch (err) {
       if (!env.AI) throw err;
+      ollamaDownUntil = Date.now() + OLLAMA_RETRY_MS;
+      console.warn('Ollama failed, using Cloudflare mode for now:', err instanceof Error ? err.message : String(err));
     }
   }
 
-  const result = await env.AI.run(model, { messages, tools, max_tokens: max_tokens || 512 });
+  const result = await env.AI.run(model, { messages, ...(tools ? { tools } : {}), max_tokens: max_tokens || 512 });
   const message = result?.choices?.[0]?.message;
   if (!message) throw new Error('Workers AI returned an unexpected response shape.');
+  // Same normalization the Ollama path gets: null content becomes an empty string.
+  if (message.content == null) message.content = '';
   const neurons = result?.usage?.neurons || 0;
   await spendNeurons(env, neurons);
   return { message, neurons };
@@ -505,7 +516,7 @@ async function runOllama(env, messages, { tools, max_tokens }) {
     method: 'POST',
     headers: { 'content-type': 'application/json', ...(env.OLLAMA_API_KEY ? { authorization: `Bearer ${env.OLLAMA_API_KEY}` } : {}) },
     body: JSON.stringify({
-      model: env.OLLAMA_MODEL || (env.OLLAMA_HOST ? 'gpt-oss:20b-cloud' : 'gpt-oss:20b'),
+      model: env.OLLAMA_MODEL || (env.OLLAMA_HOST ? 'gemma4:31b-cloud' : 'gemma4:31b'),
       messages: normalized,
       stream: false,
       ...(tools ? { tools } : {}),
@@ -665,6 +676,16 @@ async function runNarrator(env, state, initialMessages) {
       sideEffects.damageNudged = true;
       messages.push({ role: 'assistant', content: message.content || '' });
       messages.push({ role: 'user', content: 'You rolled damage. If it hurt a party member, call update_character now with their new hpCurrent (current HP minus the damage), then narrate. If it hurt no one, just narrate.' });
+      continue;
+    }
+
+    // Some models answer with commentary about being the DM ("(I am waiting for...)", "As the DM, I
+    // have set the scene") instead of the story. Ask once for the actual narration.
+    if (!sideEffects.metaNudged && iteration < MAX_TOOL_ITERATIONS - 1
+        && /^\s*\(?\s*(i am|i'm|i will|as the dm|as your dm|the dm (is|has|will))\b/i.test(String(message.content || ''))) {
+      sideEffects.metaNudged = true;
+      messages.push({ role: 'assistant', content: message.content || '' });
+      messages.push({ role: 'user', content: 'That was commentary, not the story. Write the actual narration of the scene for the players now, in the story, ending with what they can do.' });
       continue;
     }
 

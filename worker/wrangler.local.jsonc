@@ -1,5 +1,5 @@
 {
-  // Local copy of the game: same Worker code, but AI comes from Ollama (cloud gpt-oss:20b) instead
+  // Local copy of the game: same Worker code, but AI comes from Ollama (cloud gemma4:31b) instead
   // of Workers AI, and there are no accounts. Run with `local/start.sh` from the repo root.
   "name": "dnd-dm-local",
   "main": "src/index.js",
@@ -7,7 +7,7 @@
   "vars": {
     "LOCAL_MODE": "1",
     "OLLAMA_HOST": "http://127.0.0.1:11434",
-    "OLLAMA_MODEL": "gpt-oss:20b-cloud"
+    "OLLAMA_MODEL": "gemma4:31b-cloud"
   },
   "kv_namespaces": [
     { "binding": "ROOM_BUDGET", "id": "local-room-budget" },

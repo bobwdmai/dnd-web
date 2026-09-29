@@ -465,7 +465,9 @@ function extractStrayEffectMentions(text) {
     return full;
   });
   const cleaned = withoutEffectLines.replace(/\*{1,2}([a-z]+(?:_[a-z]+)*)\*{1,2}/gi, (full, word) => {
-    const effect = resolveEffectName(word);
+    // Bare italic words are usually prose (spell names like *Fireball*), so only an exact catalog
+    // name counts here — fuzzy matching would eat "*Fireball*" as fire_crackle.
+    const effect = SFX_CATALOG.includes(word.toLowerCase()) ? word.toLowerCase() : null;
     if (effect) { extraEffects.push(effect); return ''; }
     return full;
   });

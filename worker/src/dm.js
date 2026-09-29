@@ -710,7 +710,7 @@ async function runNarrator(env, state, initialMessages) {
       continue;
     }
 
-    return { narrative: message.content || '', rollResults, sfxRequests, characterUpdates: [...characterUpdates], structureChanged: sideEffects.structureChanged, combatStarted: sideEffects.combatStarted, paintMap: sideEffects.paintMap || null };
+    return { narrative: message.content || '', rollResults, sfxRequests, characterUpdates: [...characterUpdates], structureChanged: sideEffects.structureChanged, combatStarted: sideEffects.combatStarted, paintMap: sideEffects.paintMap || null, messages };
   }
 
   return {
@@ -734,6 +734,7 @@ export async function takeTurn(env, state, playerName, actionText, { opening = f
 
   if (!opening) state.history.push({ role: 'user', name: playerName, content: actionText, ts: new Date().toISOString() });
 
+  let convo = null;
   let rawNarrative = '', rollResults = [], sfxRequests = [], characterUpdates = [], structureChanged = false, combatStarted = false, paintMap = null;
   try {
     const result = await runNarrator(env, state, buildMessages(state, playerName, actionText, opening));
@@ -744,6 +745,7 @@ export async function takeTurn(env, state, playerName, actionText, { opening = f
     structureChanged = result.structureChanged;
     combatStarted = result.combatStarted;
     paintMap = result.paintMap;
+    convo = result.messages;
   } catch (err) {
     rawNarrative = `(The DM stumbled: ${errMsg(err)})`;
   }
@@ -762,7 +764,17 @@ export async function takeTurn(env, state, playerName, actionText, { opening = f
     characterUpdates = [...touched];
   }
   const stripped = stripToolMentions(leakBlock);
-  const { cleanText, extraEffects } = extractStrayEffectMentions(stripped);
+  let { cleanText, extraEffects } = extractStrayEffectMentions(stripped);
+  // Nothing readable survived (tool-only reply, or everything was stripped): ask once, tool-free,
+  // for the actual story beat instead of showing a placeholder.
+  if (!/[A-Za-z]{3}/.test(cleanText) && convo && !rawNarrative.startsWith('(The DM stumbled')) {
+    try {
+      const { message } = await runModel(env, NARRATOR_MODEL,
+        [...convo, { role: 'user', content: 'Now write the narration of what just happened, as plain story text for the players. No tool calls, no lists of options unless it fits.' }],
+        { max_tokens: NARRATOR_MAX_TOKENS });
+      cleanText = extractStrayEffectMentions(stripToolMentions(message.content || '')).cleanText;
+    } catch { /* keep the placeholder */ }
+  }
   // If stripping left nothing (the model's whole reply was a leaked tool-call artifact), show a
   // brief placeholder rather than a blank chat bubble — never make up story content here.
   const narrative = (/[A-Za-z]{3}/.test(cleanText) ? cleanText : '') || "(The DM pauses for a moment, gathering their thoughts...)";

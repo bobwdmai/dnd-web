@@ -185,6 +185,35 @@ async function handle(request, env) {
         'cache-control': 'public, max-age=3600', ...corsHeaders(request) } });
     }
 
+    // Account character library: a signed-in player's characters follow them into any game.
+    // GET -> list, POST { sheet } -> save (by character name), DELETE ?name= -> remove.
+    if (url.pathname === '/api/my-characters') {
+      const username = await resolveVerifiedUsername(request, env);
+      if (!username) return json(request, { error: 'Sign in to use saved characters.' }, 401);
+      const key = `chars:${username.toLowerCase()}`;
+      const list = JSON.parse((await env.ROOM_REGISTRY.get(key)) || '[]');
+      if (request.method === 'GET') return json(request, { characters: list });
+      if (request.method === 'POST') {
+        const body = await request.json().catch(() => ({}));
+        const sheet = body.sheet;
+        if (!sheet || typeof sheet !== 'object' || !sheet.name) return json(request, { error: 'No character.' }, 400);
+        const name = String(sheet.name).slice(0, 40);
+        const rest = list.filter(c => String(c.name).toLowerCase() !== name.toLowerCase());
+        // Saved copies are fresh-start versions: full HP, keep everything else the player built.
+        const saved = { ...sheet, name, hp: { current: sheet.hp?.max || 10, max: sheet.hp?.max || 10 } };
+        if (JSON.stringify(saved).length > 8000) return json(request, { error: 'Character too large.' }, 413);
+        rest.unshift(saved);
+        await env.ROOM_REGISTRY.put(key, JSON.stringify(rest.slice(0, 20)));
+        return json(request, { ok: true, characters: rest.slice(0, 20) });
+      }
+      if (request.method === 'DELETE') {
+        const name = (url.searchParams.get('name') || '').toLowerCase();
+        const rest = list.filter(c => String(c.name).toLowerCase() !== name);
+        await env.ROOM_REGISTRY.put(key, JSON.stringify(rest));
+        return json(request, { ok: true, characters: rest });
+      }
+    }
+
     // POST /api/room/:code/character { playerName, text } -> AI-formatted character sheet
     const charMatch = url.pathname.match(/^\/api\/room\/([A-Za-z0-9]+)\/character$/);
     if (charMatch && request.method === 'POST') {

@@ -71,7 +71,9 @@ This game has structure — follow it, don't improvise around it:
   initiative modifier, like "Goblin 1 +2". The server rolls initiative and tracks turns and rounds
   itself — never roll initiative or track order yourself. Only the player whose turn it is acts (if
   someone else tries, tell them to hold on). Resolve their action, then narrate every enemy turn that
-  comes before the next player's turn (rolling those attacks yourself). Call run_combat with action
+  comes before the next player's turn (rolling those attacks yourself). When you start a fight, FIRST narrate what just happened and answer whatever the player said or asked (never skip
+  their question), and only then let the initiative order stand; do not reply with just "it is X's turn".
+  Call run_combat with action
   end when the fight is over. Outside a fight, never use it.
 
 You roll all dice yourself with the roll_dice tool — players never need physical dice. Call it for any
@@ -347,10 +349,14 @@ function summarizeMapArt(state) {
   return out;
 }
 
-function contextMessage(state) {
+function contextMessage(state, playerName) {
+  const sheetKey = playerName ? findCharacterName(state.characters || {}, playerName) : null;
+  const speaker = !playerName ? '' :
+    `\n\nThe player acting RIGHT NOW is ${playerName}. Answer and address ${playerName} — not another player.` +
+    (sheetKey ? '' : ` ${playerName} has not made a character sheet: treat them as a capable ordinary adventurer, never ask them to paste stats or details into the chat, and if they ask who they are, say they can make a character in the Character Sheet panel.`);
   return {
     role: 'system',
-    content: `Campaign: ${state.campaign}\n\n${summarizeStructure(state)}\n\nParty:\n${summarizeCharacters(state.characters)}\n\n${summarizeMap(state.map)}${summarizeMapArt(state)}`
+    content: `Campaign: ${state.campaign}\n\n${summarizeStructure(state)}\n\nParty:\n${summarizeCharacters(state.characters)}\n\n${summarizeMap(state.map)}${summarizeMapArt(state)}${speaker}`
   };
 }
 
@@ -358,7 +364,7 @@ function buildMessages(state, playerName, actionText, opening) {
   const recent = state.history.slice(-24).map(historyEntryToMessage);
   return [
     { role: 'system', content: SYSTEM_PROMPT },
-    contextMessage(state),
+    contextMessage(state, opening ? '' : playerName),
     ...recent,
     // The opening scene isn't a player's message — it's an instruction, so it carries no name.
     { role: 'user', content: opening ? actionText : `${playerName}: ${actionText}` }
@@ -677,7 +683,7 @@ async function runNarrator(env, state, initialMessages) {
 
     // An empty reply after the tools ran means the model spent its budget thinking — ask again
     // for the narration rather than showing the players nothing.
-    if (!String(message.content || '').trim() && iteration < MAX_TOOL_ITERATIONS - 1) {
+    if (!/[A-Za-z]{3}/.test(String(message.content || '')) && iteration < MAX_TOOL_ITERATIONS - 1) {
       messages.push({ role: 'user', content: 'Now narrate what happens for the players, in the story.' });
       continue;
     }
@@ -757,7 +763,7 @@ export async function takeTurn(env, state, playerName, actionText, { opening = f
   const { cleanText, extraEffects } = extractStrayEffectMentions(stripped);
   // If stripping left nothing (the model's whole reply was a leaked tool-call artifact), show a
   // brief placeholder rather than a blank chat bubble — never make up story content here.
-  const narrative = cleanText || "(The DM pauses for a moment, gathering their thoughts...)";
+  const narrative = (/[A-Za-z]{3}/.test(cleanText) ? cleanText : '') || "(The DM pauses for a moment, gathering their thoughts...)";
   if (extraEffects.length) sfxRequests.push(...extraEffects);
 
   if (rollResults.length) {

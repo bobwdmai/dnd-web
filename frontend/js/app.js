@@ -180,6 +180,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
   function enterRoom(code, name, { solo = false } = {}) {
     roomCode = code;
     playerName = name;
+    setTimeout(() => refreshSavedChars(), 0);
     // A solo game isn't saved or shareable, so there's no code to show and nothing to "continue".
     if (!solo) saveSession(code, name);
     roomBadge.parentElement.classList.toggle('dnd-hidden', solo);
@@ -607,6 +608,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || 'Upload failed');
       uploadStatus.textContent = `Loaded ${data.sheet.name || playerName}.`;
+      saveToAccount(data.sheet);
       pdfInput.value = '';
     } catch (err) {
       uploadStatus.textContent = `Error: ${err.message}`;
@@ -850,11 +852,58 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || 'Could not create character');
       createCharStatus.textContent = `Created ${data.sheet.name}.`;
+      saveToAccount(data.sheet);
       createCharForm.reset();
     } catch (err) {
       createCharStatus.textContent = `Error: ${err.message}`;
     }
   });
+
+
+  // ---- Saved characters (signed-in accounts): the same character can be used in any game ----
+  const savedCharsEl = document.getElementById('dnd-saved-chars');
+  async function authedFetch(path, opts = {}) {
+    const token = window.SiteAuth?.getUsername() ? await window.SiteAuth.getIdToken() : null;
+    if (!token) return null;
+    return fetch(`${WORKER_ORIGIN}${path}`, { ...opts, headers: { 'content-type': 'application/json', authorization: `Bearer ${token}`, ...(opts.headers || {}) } });
+  }
+  async function saveToAccount(sheet) {
+    try { await authedFetch('/api/my-characters', { method: 'POST', body: JSON.stringify({ sheet }) }); refreshSavedChars(); } catch { /* best effort */ }
+  }
+  async function refreshSavedChars() {
+    let list = [];
+    try { const r = await authedFetch('/api/my-characters'); if (r?.ok) list = (await r.json()).characters || []; } catch { /* ignore */ }
+    savedCharsEl.classList.toggle('dnd-hidden', !list.length);
+    savedCharsEl.innerHTML = '';
+    if (!list.length) return;
+    const title = document.createElement('div');
+    title.className = 'dnd-saved-title';
+    title.textContent = 'Your saved characters — use one in this game:';
+    savedCharsEl.append(title);
+    for (const c of list) {
+      const row = document.createElement('div');
+      row.className = 'dnd-saved-row';
+      const use = document.createElement('button');
+      use.type = 'button';
+      use.textContent = `${c.name} · ${[c.race, c.class].filter(Boolean).join(' ')} ${c.level ? 'L' + c.level : ''}`;
+      use.addEventListener('click', async () => {
+        createCharStatus.textContent = `Bringing in ${c.name}…`;
+        try {
+          const res = await fetch(`${WORKER_ORIGIN}/api/room/${encodeURIComponent(roomCode)}/character/create`, {
+            method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ playerName, sheet: c }) });
+          const data = await res.json();
+          if (!data.ok) throw new Error(data.error || 'failed');
+          createCharStatus.textContent = `${data.sheet.name} joined this game.`;
+        } catch (err) { createCharStatus.textContent = `Error: ${err.message}`; }
+      });
+      const del = document.createElement('button');
+      del.type = 'button'; del.textContent = '✕'; del.title = 'Remove from my saved characters';
+      del.addEventListener('click', async () => { await authedFetch(`/api/my-characters?name=${encodeURIComponent(c.name)}`, { method: 'DELETE' }); refreshSavedChars(); });
+      row.append(use, del);
+      savedCharsEl.append(row);
+    }
+  }
+  window.SiteAuth?.onChange(refreshSavedChars);
 
   function cssId(name) { return String(name).replace(/[^a-z0-9]/gi, '_'); }
 

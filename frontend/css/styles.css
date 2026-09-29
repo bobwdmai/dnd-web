@@ -267,3 +267,6 @@ body.dnd-page .header-nav { max-width: none; }
 .dnd-map-full .dnd-map-art { margin: 0 auto; width: auto; max-width: 100%; max-height: calc(100dvh - 90px); object-fit: contain; cursor: default; }
 
 .dnd-map-painting .dnd-panel-title::after { content: '  🎨 painting…'; font-weight: 400; opacity: .7; }
+
+.dnd-saved-chars { margin: 8px 0; } .dnd-saved-title { font-size: .85em; opacity: .75; margin-bottom: 4px; }
+.dnd-saved-row { display: flex; gap: 4px; margin-bottom: 4px; } .dnd-saved-row button:first-child { flex: 1; text-align: left; }

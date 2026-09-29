@@ -341,6 +341,9 @@ export class GameRoom extends DurableObject {
 
     const campaign = url.searchParams.get('campaign') || undefined;
     this.#ensureInitialized(campaign);
+    // Older rooms (like the Global Game) were created before roomCode was stored; the URL always knows it.
+    const pathCode = url.pathname.split('/').filter(Boolean).pop();
+    if (this.state && !this.state.roomCode && pathCode) { this.state.roomCode = pathCode.toUpperCase(); this.#persist(); }
 
     const pair = new WebSocketPair();
     this.ctx.acceptWebSocket(pair[1]);
@@ -447,7 +450,10 @@ export class GameRoom extends DurableObject {
       this.#broadcastPlayers();
       this.#maybeOpen();
       // Rooms started before illustrated maps existed (or whose first painting failed) get one now.
-      if (!this.state.mapArt && this.state.adventure?.opened && this.state.adventure.status === 'active') this.#queueMapArt();
+      if (this.state.adventure?.opened && this.state.adventure.status === 'active') {
+        if (!this.state.mapArt) this.#queueMapArt();
+        else this.ctx.waitUntil(this.env.ROOM_REGISTRY.get(`mapart:${this.state.roomCode}`, { cacheTtl: 60 }).then(v => { if (!v) this.#queueMapArt(); }).catch(() => {}));
+      }
       return;
     }
 

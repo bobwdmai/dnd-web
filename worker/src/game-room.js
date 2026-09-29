@@ -450,7 +450,7 @@ export class GameRoom extends DurableObject {
       this.#broadcastPlayers();
       this.#maybeOpen();
       // Rooms started before illustrated maps existed (or whose first painting failed) get one now.
-      if (this.state.adventure?.opened && this.state.adventure.status === 'active') {
+      if ((this.state.adventure?.opened || this.state.history.length > 0) && this.state.adventure?.status === 'active') {
         if (!this.state.mapArt) this.#queueMapArt();
         else this.ctx.waitUntil(this.env.ROOM_REGISTRY.get(`mapart:${this.state.roomCode}`, { cacheTtl: 60 }).then(v => { if (!v) this.#queueMapArt(); }).catch(() => {}));
       }

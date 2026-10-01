@@ -637,7 +637,10 @@ function executeTool(state, name, args, sideEffects) {
     const all = state.conditions || (state.conditions = {});
     const key = Object.keys(all).find(k => k.toLowerCase() === target.toLowerCase()) || target;
     const set = new Set(all[key] || []);
-    if (args.active === false || args.active === 'false') set.delete(cond); else set.add(cond);
+    // A tally like "dying: 1 failure" replaces the previous tally instead of piling up beside it.
+    const family = cond.match(/^([a-z ]+):/)?.[1];
+    if (family) for (const c of [...set]) if (c.startsWith(family + ':')) set.delete(c);
+    if (args.active === false || args.active === 'false') { if (family) { for (const c of [...set]) if (c.startsWith(family)) set.delete(c); } else set.delete(cond); } else set.add(cond);
     if (set.size) all[key] = [...set]; else delete all[key];
     sideEffects.structureChanged = true;
     return { target: key, conditions: all[key] || [] };

@@ -795,6 +795,16 @@ async function runNarrator(env, state, initialMessages, opening = false) {
       continue;
     }
 
+    // In a fight the model sometimes replies with just "It is your turn" and never resolves what the
+    // player did. Ask once for the actual resolution (rolling if needed) before accepting that.
+    if (!sideEffects.terseNudged && iteration < MAX_TOOL_ITERATIONS - 1 && state.combat?.active
+        && String(message.content || '').trim().length < 110 && /\b(your|[A-Z][\w' -]*'s) turn\b/i.test(String(message.content || ''))) {
+      sideEffects.terseNudged = true;
+      messages.push({ role: 'assistant', content: message.content || '' });
+      messages.push({ role: 'user', content: "You only announced a turn. First resolve what the player just did: roll the attack/damage or check it needs with roll_dice, narrate the outcome in the story, then narrate each enemy turn that comes before the player's next turn, and only then say it is the player's turn." });
+      continue;
+    }
+
     // Some models answer with commentary about being the DM ("(I am waiting for...)", "As the DM, I
     // have set the scene") instead of the story. Ask once for the actual narration.
     if (!sideEffects.metaNudged && iteration < MAX_TOOL_ITERATIONS - 1

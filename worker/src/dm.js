@@ -95,6 +95,7 @@ This game has structure — follow it, don't improvise around it:
   CONDITIONS: whenever a spell or event gives a creature a lasting condition (Sleep -> asleep, etc.), call set_condition; sleeping/unconscious/paralyzed creatures do nothing on their turns and are not woken by noise alone (damage or a shake wakes the sleeping one — then clear it). Honor the conditions listed in your context: a sleeping goblin does not attack, move, or notice anything until damaged or shaken, and attacking a sleeping/unconscious/paralyzed target is made with advantage and a hit within 5 feet is a critical hit. ALWAYS call set_condition for each creature a spell like Sleep affects, one call per creature.
   ENEMIES NEVER WAIT: never write "It is the <enemy>'s turn" and stop. On an enemy's turn, decide what it does, roll its attack, and narrate it right away in the same reply; if a player asks "what does it do?", resolve it immediately. Only pause to ask for input when it is a player character's turn. When you start a fight, FIRST narrate what just happened and answer whatever the player said or asked (never skip
   their question), and only then let the initiative order stand; do not reply with just "it is X's turn".
+  MULTI-PART MESSAGES: a player's message may hold several requests ("drink the potion, then check my pack and what spells I know"). Resolve and answer EVERY part in that one reply, in the order given, even when a fight starts partway through (do the earlier parts first, start the fight, then still answer the rest — checking gear or spells is a free action). Never drop a part, and never act for a player beyond what they asked.
   Call run_combat with action
   end when the fight is over. Outside a fight, never use it.
 
@@ -173,7 +174,11 @@ the battle map, so the more concrete the geography in your prose, the more accur
 Do not draw the map yourself and do not mention maps, grids, or coordinates in your narration.
 
 You will be given the current party's character sheets and recent conversation history as context.
-Use character stats (HP, AC, class, proficiencies, etc.) to keep combat and checks consistent.`;
+Use character stats (HP, AC, class, proficiencies, etc.) to keep combat and checks consistent.
+When a player asks what they carry, wear or know ("check my pack", "what spells do I have"), answer ONLY from that player's
+"Equipment" and "Spells known" lines in the party list, quoting them accurately; never invent items or spells. If they have
+no sheet or the line says nothing/none, say their pack is bare or they know no spells yet (they can make a sheet in the
+Character Sheet panel), and offer what they could do in the story instead.`;
 
 const MAP_SYSTEM_PROMPT = `You are the cartographer for a text-based Dungeons & Dragons game. You do not
 narrate, speak to players, or explain yourself. Your only job is to read the Dungeon Master's latest
@@ -469,8 +474,19 @@ function resolveEffectName(raw) {
 /** Rarely, the model narrates its own tool call instead of just the outcome — as a mention of
  *  the tool's name, a fenced code block of pseudo-JSON, or a bolded pseudo-heading. Real DM
  *  narration never legitimately needs any of these, so strip all three wholesale. */
+const META_PAREN = /\b(previous response|prompt|player|narration|opening scene|the dm|as the dm|story so far|scene)\b/i;
+function stripMetaParagraphs(text) {
+  const paras = text.trim().split(/\n\s*\n/);
+  while (paras.length) {
+    const p = paras[0].trim();
+    if (p.startsWith('(') && p.endsWith(')') && META_PAREN.test(p)) paras.shift();
+    else break;
+  }
+  return paras.join('\n\n');
+}
+
 function stripToolMentions(text) {
-  const cleaned = text
+  const cleaned = stripMetaParagraphs(text)
     .replace(/^\s*\((?:OOC|out of character|note|the previous|previous response|i need|i will|i have|as the dm|the player|you are asking)\b[^)]*\)\s*/i, '')
     .replace(/```[\s\S]*?```/g, '') // fenced code blocks (e.g. a leaked {"effect": "..."} blob)
     .split('\n')
@@ -709,12 +725,14 @@ function isDmCommentary(text) {
     /^\(?\s*(i am|i'm|i will|as the dm|as your dm|the dm (is|has|will))\b/i.test(t);
 }
 
-async function runNarrator(env, state, initialMessages) {
+async function runNarrator(env, state, initialMessages, opening = false) {
   const messages = [...initialMessages];
   const rollResults = [];
   const sfxRequests = [];
   const characterUpdates = new Set();
-  const sideEffects = { rollResults, sfxRequests, characterUpdates, structureChanged: false, combatStarted: false };
+  const lastUser = initialMessages[initialMessages.length - 1];
+  const sideEffects = { rollResults, sfxRequests, characterUpdates, structureChanged: false, combatStarted: false,
+    playerMessage: lastUser?.role === 'user' && !opening ? String(lastUser.content || '') : '' };
 
   for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
     let message;
@@ -818,7 +836,7 @@ export async function takeTurn(env, state, playerName, actionText, { opening = f
   let convo = null;
   let rawNarrative = '', rollResults = [], sfxRequests = [], characterUpdates = [], structureChanged = false, combatStarted = false, paintMap = null;
   try {
-    const result = await runNarrator(env, state, buildMessages(state, playerName, actionText, opening));
+    const result = await runNarrator(env, state, buildMessages(state, playerName, actionText, opening), opening);
     rawNarrative = result.narrative;
     rollResults = result.rollResults;
     sfxRequests = result.sfxRequests;
@@ -848,10 +866,13 @@ export async function takeTurn(env, state, playerName, actionText, { opening = f
   let { cleanText, extraEffects } = extractStrayEffectMentions(stripped);
   // Nothing readable survived (tool-only reply, or everything was stripped): ask once, tool-free,
   // for the actual story beat instead of showing a placeholder.
-  if ((!/[A-Za-z]{3}/.test(cleanText) || isDmCommentary(cleanText)) && convo && !rawNarrative.startsWith('(The DM stumbled')) {
+  const thinOpening = opening && cleanText.replace(/\s+/g, ' ').length < 120;
+  if ((!/[A-Za-z]{3}/.test(cleanText) || isDmCommentary(cleanText) || thinOpening) && convo && !rawNarrative.startsWith('(The DM stumbled')) {
     try {
       const { message } = await runModel(env, NARRATOR_MODEL,
-        [...convo, { role: 'user', content: 'Now write the narration of what just happened, as plain story text for the players. No tool calls, no lists of options unless it fits.' }],
+        [...convo, { role: 'user', content: (opening
+          ? 'Write the opening scene now: 2-4 paragraphs of plain story narration placing the party in the setting, ending with a clear first choice. No parentheses, no commentary about previous responses, prompts or players. No tool calls.'
+          : 'Now write the narration of what just happened, as plain story text for the players. No tool calls, no lists of options unless it fits.') }],
         { max_tokens: NARRATOR_MAX_TOKENS });
       cleanText = extractStrayEffectMentions(stripToolMentions(message.content || '')).cleanText;
     } catch { /* keep the placeholder */ }

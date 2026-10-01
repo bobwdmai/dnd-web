@@ -882,14 +882,17 @@ export async function takeTurn(env, state, playerName, actionText, { opening = f
   // Nothing readable survived (tool-only reply, or everything was stripped): ask once, tool-free,
   // for the actual story beat instead of showing a placeholder.
   const thinOpening = opening && cleanText.replace(/\s+/g, ' ').length < 120;
-  if ((!/[A-Za-z]{3}/.test(cleanText) || isDmCommentary(cleanText) || thinOpening) && convo && !rawNarrative.startsWith('(The DM stumbled')) {
+  const terseTurn = !opening && state.combat?.active && cleanText.trim().length < 110 && /\b(your|[A-Z][\w' -]*'s) turn\b/i.test(cleanText);
+  if ((!/[A-Za-z]{3}/.test(cleanText) || isDmCommentary(cleanText) || thinOpening || terseTurn) && convo && !rawNarrative.startsWith('(The DM stumbled')) {
     try {
       const { message } = await runModel(env, NARRATOR_MODEL,
         [...convo, { role: 'user', content: (opening
           ? 'Write the opening scene now: 2-4 paragraphs of plain story narration placing the party in the setting, ending with a clear first choice. No parentheses, no commentary about previous responses, prompts or players. No tool calls.'
+          : terseTurn ? "Now narrate, as plain story text, the result of what the player just did and of every enemy turn that followed (use the dice results above), then end by saying whose turn it is. No tool calls."
           : 'Now write the narration of what just happened, as plain story text for the players. No tool calls, no lists of options unless it fits.') }],
         { max_tokens: NARRATOR_MAX_TOKENS });
-      cleanText = extractStrayEffectMentions(stripToolMentions(message.content || '')).cleanText;
+      const rescued = extractStrayEffectMentions(stripToolMentions(message.content || '')).cleanText;
+      if (rescued.length > cleanText.length) cleanText = rescued;
     } catch { /* keep the placeholder */ }
   }
   // If stripping left nothing (the model's whole reply was a leaked tool-call artifact), show a

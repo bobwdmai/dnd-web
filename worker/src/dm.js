@@ -6,8 +6,28 @@ import { RUN_COMBAT_TOOL, ADVANCE_STORY_TOOL, runStructureTool, summarizeStructu
 // One model family for everything (narration, map, PDF sheets): Gemma. Ollama is the primary
 // provider (gemma4:31b); Workers AI's Gemma is the standby whenever Ollama is failing.
 export const NARRATOR_MODEL = '@cf/google/gemma-4-26b-a4b-it';
-const MAX_TOOL_ITERATIONS = 8;
+const MAX_TOOL_ITERATIONS = 12;
 // A function so it can sit up here while the tool definitions further down are still being evaluated.
+const SET_CONDITION_TOOL = {
+  type: 'function',
+  function: {
+    name: 'set_condition',
+    description:
+      'Track a lasting condition on any creature (player character or NPC/monster): asleep, unconscious, paralyzed, prone, ' +
+      'poisoned, frightened, restrained, grappled, blinded, stunned, charmed, invisible, burning, etc. Call it when a spell or ' +
+      'event applies the condition (active true) and again when it ends (active false) — e.g. Sleep puts creatures to sleep until ' +
+      'they take damage or are shaken awake. A creature with a disabling condition cannot take its turn or attack.',
+    parameters: {
+      type: 'object',
+      properties: {
+        target: { type: 'string', description: 'Creature name exactly as used in the story or initiative order, e.g. "Cultist 1".' },
+        condition: { type: 'string', description: 'Short condition name, e.g. "asleep".' },
+        active: { type: 'boolean', description: 'true to apply, false to remove.' }
+      },
+      required: ['target', 'condition', 'active']
+    }
+  }
+};
 const PAINT_MAP_TOOL = {
   type: 'function',
   function: {
@@ -19,7 +39,7 @@ const PAINT_MAP_TOOL = {
     parameters: { type: 'object', properties: { reason: { type: 'string', description: 'Where or what the new map shows.' } }, required: ['reason'] }
   }
 };
-const narratorTools = () => [ROLL_TOOL, SFX_TOOL, UPDATE_CHARACTER_TOOL, RUN_COMBAT_TOOL, ADVANCE_STORY_TOOL, PAINT_MAP_TOOL];
+const narratorTools = () => [ROLL_TOOL, SFX_TOOL, UPDATE_CHARACTER_TOOL, RUN_COMBAT_TOOL, ADVANCE_STORY_TOOL, PAINT_MAP_TOOL, SET_CONDITION_TOOL];
 const NARRATOR_MAX_TOKENS = 2000; // gpt-oss spends part of this on hidden reasoning before any text or tool call
 const MAP_MAX_TOKENS = 1600; // gpt-oss's hidden reasoning can otherwise eat the whole budget before any [MAP] text comes out
 
@@ -71,7 +91,9 @@ This game has structure — follow it, don't improvise around it:
   initiative modifier, like "Goblin 1 +2". The server rolls initiative and tracks turns and rounds
   itself — never roll initiative or track order yourself. Only the player whose turn it is acts (if
   someone else tries, tell them to hold on). Resolve their action, then narrate every enemy turn that
-  comes before the next player's turn (rolling those attacks yourself). ENEMIES NEVER WAIT: never write "It is the <enemy>'s turn" and stop. On an enemy's turn, decide what it does, roll its attack, and narrate it right away in the same reply; if a player asks "what does it do?", resolve it immediately. Only pause to ask for input when it is a player character's turn. When you start a fight, FIRST narrate what just happened and answer whatever the player said or asked (never skip
+  comes before the next player's turn (rolling those attacks yourself). PLAYER AGENCY: never act, cast, attack, roll or decide for a player character who did not just ask for it in their own message — resolve ONLY the action the speaking player stated, then narrate the world's response and hand back control. Never cast Fire Bolt (or anything) for a player on your own initiative.
+  CONDITIONS: whenever a spell or event gives a creature a lasting condition (Sleep -> asleep, etc.), call set_condition; sleeping/unconscious/paralyzed creatures do nothing on their turns and are not woken by noise alone (damage or a shake wakes the sleeping one — then clear it). Honor the conditions listed in your context: a sleeping goblin does not attack, move, or notice anything until damaged or shaken, and attacking a sleeping/unconscious/paralyzed target is made with advantage and a hit within 5 feet is a critical hit. ALWAYS call set_condition for each creature a spell like Sleep affects, one call per creature.
+  ENEMIES NEVER WAIT: never write "It is the <enemy>'s turn" and stop. On an enemy's turn, decide what it does, roll its attack, and narrate it right away in the same reply; if a player asks "what does it do?", resolve it immediately. Only pause to ask for input when it is a player character's turn. When you start a fight, FIRST narrate what just happened and answer whatever the player said or asked (never skip
   their question), and only then let the initiative order stand; do not reply with just "it is X's turn".
   Call run_combat with action
   end when the fight is over. Outside a fight, never use it.
@@ -94,6 +116,11 @@ The painting is real: players can see it and you cannot, and it always shows mor
 were given (chests, furniture, torches, bridges, statues, water). When a player points to something on the
 map ("there's a chest on the map"), treat it as genuinely present in the world: place it in the scene, help
 them reach it (it may take a few turns of travel, a check, or a trap), and never tell them it isn't there.
+
+NO-ROLL SPELLS. Detect Magic, Light, Mage Hand, Prestidigitation, Mage Armor, Shield, Bless, Cure Wounds, Healing Word,
+Guidance, Sleep and similar spells just work when cast: never ask for an Arcana (or any) check to cast or use them. A
+check is only for a separate act, like identifying a particular aura or school afterwards. Spell attack rolls and save
+DCs are given in each character's READY-MADE BONUSES.
 
 SPELLS. When a player casts a spell, resolve it by the real 5e rules for that exact spell — do not
 improvise or reinvent it. Work out: does it need an attack roll (you roll their spell attack: proficiency +
@@ -294,6 +321,31 @@ function abilityModifier(score) {
   return Math.floor((score - 10) / 2);
 }
 
+const SKILL_ABILITY = {
+  'Acrobatics': 'DEX', 'Animal Handling': 'WIS', 'Arcana': 'INT', 'Athletics': 'STR', 'Deception': 'CHA', 'History': 'INT',
+  'Insight': 'WIS', 'Intimidation': 'CHA', 'Investigation': 'INT', 'Medicine': 'WIS', 'Nature': 'INT', 'Perception': 'WIS',
+  'Performance': 'CHA', 'Persuasion': 'CHA', 'Religion': 'INT', 'Sleight of Hand': 'DEX', 'Stealth': 'DEX', 'Survival': 'WIS'
+};
+const CASTING_ABILITY = { Wizard: 'INT', Artificer: 'INT', Cleric: 'WIS', Druid: 'WIS', Ranger: 'WIS', Bard: 'CHA', Paladin: 'CHA', Sorcerer: 'CHA', Warlock: 'CHA' };
+const signed = n => (n >= 0 ? '+' : '') + n;
+
+/** Every check/save/attack bonus already worked out, so the DM copies numbers instead of doing 5e math
+ *  (it was getting modifiers wrong, e.g. using +2 for STR 8). */
+function computeBonuses(c) {
+  const ab = c.abilityScores || {};
+  const mod = k => abilityModifier(ab[k] ?? 10);
+  const prof = c.proficiencyBonus ?? 2;
+  const has = (list, name) => (list || []).some(x => String(x).toLowerCase() === name.toLowerCase());
+  const skills = Object.entries(SKILL_ABILITY)
+    .map(([s, k]) => `${s} ${signed(mod(k) + (has(c.skills, s) ? prof : 0))}`).join(', ');
+  const saves = ['STR', 'DEX', 'CON', 'INT', 'WIS', 'CHA']
+    .map(k => `${k} ${signed(mod(k) + (has(c.savingThrows, k) ? prof : 0))}`).join(', ');
+  const cast = CASTING_ABILITY[c.class];
+  const spell = cast ? `Spell attack ${signed(mod(cast) + prof)}, spell save DC ${8 + mod(cast) + prof} (${cast}). ` : '';
+  return `  READY-MADE BONUSES (use exactly these; do not recompute): Skill checks: ${skills}. Saves: ${saves}. ` +
+    `Initiative ${signed(mod('DEX'))}. Melee attack (STR) ${signed(mod('STR') + prof)}, ranged/finesse (DEX) ${signed(mod('DEX') + prof)}. ${spell}\n`;
+}
+
 function summarizeCharacters(characters) {
   const names = Object.keys(characters || {});
   if (names.length === 0) return 'No character sheets have been uploaded yet.';
@@ -308,7 +360,7 @@ function summarizeCharacters(characters) {
     // Deliberately not showing the sheet's own name: players are known by their player name only.
     return `- ${name}: Level ${c.level || '?'} ${c.race || ''} ${c.class || ''}, ` +
       `HP ${c.hp?.current ?? '?'}/${c.hp?.max ?? '?'}, AC ${c.armorClass ?? '?'}, proficiency bonus +${c.proficiencyBonus ?? 2}\n` +
-      `  Abilities: ${mods}\n  Save proficiencies: ${saves}\n  Skill proficiencies: ${skills}\n` +
+      `  Abilities: ${mods}\n  Save proficiencies: ${saves}\n  Skill proficiencies: ${skills}\n` + computeBonuses(c) +
       `  Spells known: ${(c.spells || []).join(', ') || 'none yet (can learn some in the story)'}\n` +
       `  Equipment (all they own): ${(c.equipment || []).join(', ') || 'nothing'}`;
   }).join('\n');
@@ -419,6 +471,7 @@ function resolveEffectName(raw) {
  *  narration never legitimately needs any of these, so strip all three wholesale. */
 function stripToolMentions(text) {
   const cleaned = text
+    .replace(/^\s*\((?:OOC|out of character|note|the previous|previous response|i need|i will|i have|as the dm|the player|you are asking)\b[^)]*\)\s*/i, '')
     .replace(/```[\s\S]*?```/g, '') // fenced code blocks (e.g. a leaked {"effect": "..."} blob)
     .split('\n')
     .filter(line => {
@@ -557,6 +610,17 @@ async function runOllama(env, messages, { tools, max_tokens }) {
 function executeTool(state, name, args, sideEffects) {
   const { sfxRequests, characterUpdates } = sideEffects;
   const { rollResults } = sideEffects;
+  if (name === 'set_condition') {
+    const target = String(args.target || '').trim().slice(0, 60), cond = String(args.condition || '').trim().toLowerCase().slice(0, 30);
+    if (!target || !cond) return { error: 'target and condition are required' };
+    const all = state.conditions || (state.conditions = {});
+    const key = Object.keys(all).find(k => k.toLowerCase() === target.toLowerCase()) || target;
+    const set = new Set(all[key] || []);
+    if (args.active === false || args.active === 'false') set.delete(cond); else set.add(cond);
+    if (set.size) all[key] = [...set]; else delete all[key];
+    sideEffects.structureChanged = true;
+    return { target: key, conditions: all[key] || [] };
+  }
   if (name === 'paint_map') { sideEffects.paintMap = String(args.reason || 'a new area').slice(0, 200); return { commissioned: true }; }
   if (name === 'run_combat' || name === 'advance_story') return runStructureTool(state, name, args, sideEffects);
   if (name === 'play_sound_effect') {
@@ -721,6 +785,15 @@ async function runNarrator(env, state, initialMessages) {
     return { narrative: message.content || '', rollResults, sfxRequests, characterUpdates: [...characterUpdates], structureChanged: sideEffects.structureChanged, combatStarted: sideEffects.combatStarted, paintMap: sideEffects.paintMap || null, messages };
   }
 
+  // Out of tool rounds: take what was resolved and ask once, tool-free, for the story beat.
+  try {
+    const { message } = await runModel(env, NARRATOR_MODEL,
+      [...messages, { role: 'user', content: 'Enough rolling. Now narrate what happened this turn for the players, as plain story text. No tool calls.' }],
+      { max_tokens: NARRATOR_MAX_TOKENS });
+    if (/[A-Za-z]{3}/.test(message.content || '')) {
+      return { narrative: message.content, rollResults, sfxRequests, characterUpdates: [...characterUpdates], structureChanged: sideEffects.structureChanged, combatStarted: sideEffects.combatStarted, paintMap: sideEffects.paintMap || null, messages };
+    }
+  } catch { /* fall through to the apology */ }
   return {
     narrative: "(The DM got tangled up using tools and couldn't finish that turn. Try again.)",
     rollResults, sfxRequests, characterUpdates: [...characterUpdates], structureChanged: sideEffects.structureChanged, combatStarted: sideEffects.combatStarted

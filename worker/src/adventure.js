@@ -80,6 +80,8 @@ export function summarizeStructure(state) {
       lines.push(`Adventure "${adv.title}" has ended in ${adv.status}. ${adv.summary || ''}`.trim());
     }
   }
+  const conds = Object.entries(state.conditions || {}).map(([k, v]) => `${k}: ${v.join(', ')}`);
+  if (conds.length) lines.push(`ACTIVE CONDITIONS (honor them): ${conds.join('; ')}.`);
   const combat = state.combat;
   if (combat?.active) {
     const order = combat.order.map((c, i) => `${i === combat.turn ? '>> ' : ''}${c.name} (${c.initiative})`).join(', ');
@@ -200,6 +202,7 @@ function runCombat(state, args, sideEffects) {
 
   if (args.action === 'end') {
     state.combat = newCombat();
+    state.conditions = {};
     sideEffects.structureChanged = true;
     return { ended: true };
   }

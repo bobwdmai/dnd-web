@@ -52,6 +52,14 @@ function strList(v, maxItems, maxLen) {
 
 /** Validates and clamps a manually-submitted character sheet — this endpoint is public and
  *  unauthenticated, so never trust shapes or sizes from the client. */
+// Every class starts with its standard weapon/gear even if the sheet came in empty or the player skipped it.
+const CLASS_KITS = {
+  Barbarian: ['Greataxe', 'Handaxe x2'], Bard: ['Rapier', 'Dagger'], Cleric: ['Mace', 'Shield', 'Holy symbol'],
+  Druid: ['Quarterstaff', 'Druidic focus'], Fighter: ['Longsword', 'Shield'], Monk: ['Shortsword', 'Darts x10'],
+  Paladin: ['Longsword', 'Shield', 'Holy symbol'], Ranger: ['Longbow', 'Shortsword x2'], Rogue: ['Rapier', "Thieves' tools", 'Dagger x2'],
+  Sorcerer: ['Dagger x2', 'Arcane focus'], Warlock: ['Dagger x2', 'Arcane focus'], Wizard: ['Quarterstaff', 'Spellbook']
+};
+
 function sanitizeSheet(raw, playerName) {
   const ab = raw?.abilityScores || {};
   const hpMax = num(raw?.hp?.max, 1, 999, 10);
@@ -72,7 +80,11 @@ function sanitizeSheet(raw, playerName) {
     proficiencyBonus: num(raw?.proficiencyBonus, 0, 10, 2),
     savingThrows: strList(raw?.savingThrows, 20, 30),
     skills: strList(raw?.skills, 30, 40),
-    equipment: strList(raw?.equipment, 40, 60),
+    equipment: (() => {
+      const own = strList(raw?.equipment, 40, 60);
+      const kitKey = Object.keys(CLASS_KITS).find(k => k.toLowerCase() === String(raw?.class || '').trim().toLowerCase());
+      return own.length || !kitKey ? own : [...CLASS_KITS[kitKey]];
+    })(),
     features: strList(raw?.features, 30, 80),
     spells: strList(raw?.spells, 40, 60),
     notes: str(raw?.notes, 1000)
@@ -213,7 +225,7 @@ export class GameRoom extends DurableObject {
           this.#persist();
           this.#broadcast({ type: 'music', mood });
         }
-        if (structureChanged) this.#broadcast({ type: 'structure', adventure: this.state.adventure, combat: this.state.combat });
+        if (structureChanged) this.#broadcast({ type: 'structure', adventure: this.state.adventure, combat: this.state.combat, conditions: this.state.conditions || {} });
         this.#broadcast({ type: 'dm-said', text: narrative, budgetExceeded });
         if (mapOps.length) this.#broadcast({ type: 'map-ops', ops: mapOps });
       } catch (err) {
@@ -527,6 +539,7 @@ export class GameRoom extends DurableObject {
       }
       this.state.adventure = newAdventure(this.state.adventure.id);
       this.state.combat = newCombat();
+      this.state.conditions = {};
       this.state.history = [];
       this.state.map = { lines: [], labels: [] };
       this.state.mapArt = null; // the next chapter's opening paints a fresh map (see #maybeOpen)

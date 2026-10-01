@@ -314,7 +314,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
         break;
       case 'structure':
         renderAdventure(msg.adventure);
-        renderCombat(msg.combat);
+        renderCombat(msg.combat, msg.conditions);
         break;
       case 'dice-rolled':
         appendRoll(msg.rolls);
@@ -411,7 +411,9 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
     }
   }
 
-  function renderCombat(combat) {
+  let lastConditions = {};
+  function renderCombat(combat, conditions) {
+    if (conditions) lastConditions = conditions;
     const active = !!combat?.active;
     combatPanel.classList.toggle('dnd-hidden', !active);
     if (!active) return;
@@ -420,7 +422,8 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
     combat.order.forEach((c, i) => {
       const li = document.createElement('li');
       if (i === combat.turn) li.className = 'dnd-combat-current';
-      li.textContent = `${c.name} — ${c.initiative}`;
+      const tags = Object.entries(lastConditions).find(([k]) => k.toLowerCase() === c.name.toLowerCase())?.[1] || [];
+      li.textContent = `${c.name} — ${c.initiative}${tags.length ? ' (' + tags.join(', ') + ')' : ''}`;
       combatOrderEl.append(li);
     });
   }

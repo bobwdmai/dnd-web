@@ -1,4 +1,5 @@
 import * as dice from './dice.js';
+import { spellFacts, findSpell, WEAPON_TABLE } from './srd.js';
 import { ensureSlots, slotsSummary, spendSlot, restoreSlots } from './spellslots.js';
 import { parseMapBlock, applyOps } from './map-commands.js';
 import { spendNeurons, getBudgetStatus } from './budget.js';
@@ -151,6 +152,9 @@ SPELL SLOTS: every leveled spell (level 1+) costs a slot: call spend_spell_slot 
 character is out of slots and the spell fails; say so. Cantrips never cost slots. Slots return only after a long rest: when the party
 rests for the night, call update_character with longRest true. Never invent or restore slots any other way. Characters start at level 1;
 raise a level only when the story truly earns it (end of a chapter or a major victory), via update_character level + hpMax.
+
+WEAPONS (official SRD table; use these damage dice and properties):
+${WEAPON_TABLE}
 
 KNOWN SPELLS ONLY: a character can cast only the spells on their "Spells known" line, cantrips included (Mage Hand, Light, Prestidigitation and
 Minor Illusion are NOT free for everyone). If the spell is not listed, it simply doesn't work: say they don't know it and let them choose again,
@@ -406,6 +410,7 @@ function summarizeCharacters(characters) {
       `  Abilities: ${mods}\n  Save proficiencies: ${saves}\n  Skill proficiencies: ${skills}\n` + computeBonuses(c) +
       `  Spells known: ${(c.spells || []).join(', ') || 'none yet (can learn some in the story)'}\n` +
       `  Spell slots: ${slotsSummary(c)}\n` +
+      ((c.spells || []).length ? `  Spell rules (official SRD; resolve spells exactly this way):\n${(c.spells || []).map(s => '    - ' + spellFacts(s)).join('\n')}\n` : '') +
       `  Equipment (all they own): ${(c.equipment || []).join(', ') || 'nothing'}`;
   }).join('\n');
 }
@@ -668,7 +673,10 @@ function executeTool(state, name, args, sideEffects) {
   if (name === 'spend_spell_slot') {
     const key = findCharacterName(state.characters, args.characterName);
     if (!key) return { error: `No character named "${args.characterName}"` };
-    const result = spendSlot(state.characters[key], Number(args.level));
+    const srd = findSpell(args.spell);
+    if (srd && srd.l === 0) return { cantrip: true, note: 'Cantrips cost no spell slot.' };
+    const level = Math.max(Number(args.level) || 1, srd ? srd.l : 1);
+    const result = spendSlot(state.characters[key], level);
     if (!result.error) characterUpdates.add(key);
     return result;
   }

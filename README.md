@@ -76,3 +76,10 @@ CSS aliases PaperMod's own theme tokens (`--primary`, `--theme`, `--entry`, `--b
 follows the site's light/dark toggle automatically, with its own small accent-color family layered on
 top. To point it at a different Worker deployment, change `WORKER_ORIGIN` at the top of
 `frontend/js/app.js`.
+
+## Rules data attribution
+
+Spell and weapon rules in `worker/src/srd-spells.json` and `worker/src/srd.js` are condensed from the
+System Reference Document 5.1 by Wizards of the Coast LLC, licensed under the
+[Creative Commons Attribution 4.0 International License](https://creativecommons.org/licenses/by/4.0/).
+Source: https://dnd.wizards.com/resources/systems-reference-document

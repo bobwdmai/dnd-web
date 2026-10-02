@@ -899,7 +899,7 @@ export async function takeTurn(env, state, playerName, actionText, { opening = f
         [...convo, { role: 'user', content: (opening
           ? 'Write the opening scene now: 2-4 paragraphs of plain story narration placing the party in the setting, ending with a clear first choice. No parentheses, no commentary about previous responses, prompts or players. No tool calls.'
           : terseTurn ? "Now narrate, as plain story text, the result of what the player just did and of every enemy turn that followed (use the dice results above), then end by saying whose turn it is. No tool calls."
-          : 'Now write the narration of what just happened, as plain story text for the players. No tool calls, no lists of options unless it fits.') }],
+          : `${playerName} just said/did: "${actionText}". Respond to exactly that, in the story: narrate the outcome (if their character cannot do it, such as casting a spell they don't know, narrate that it fails or isn't possible and why). Do not repeat earlier narration. Plain story text, no tool calls.`) }],
         { max_tokens: NARRATOR_MAX_TOKENS });
       const rescued = extractStrayEffectMentions(stripToolMentions(message.content || '')).cleanText;
       if (rescued.length > cleanText.length) cleanText = rescued;

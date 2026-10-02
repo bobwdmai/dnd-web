@@ -566,14 +566,19 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
     canvas.classList.toggle('dnd-hidden', showArt);
   }
   function setMapArt(version) {
+    mapPanel.classList.remove('dnd-map-painting');
     if (!version) { mapArtVersion = 0; applyMapView(); return; }
     mapArtVersion = version;
     mapArtImg.src = `${WORKER_ORIGIN}/api/room/${encodeURIComponent(roomCode)}/map-art?v=${version}`;
     applyMapView();
   }
   mapArtImg.addEventListener('click', () => { if (!mapPanel.classList.contains('dnd-map-full')) setMapFull(true); });
+  let paintTimer = null;
   function mapArtStatus(msg) {
     mapPanel.classList.toggle('dnd-map-painting', msg.status === 'painting');
+    clearTimeout(paintTimer);
+    // A deploy or crash can kill a painting job without a failure message; don't show "painting…" forever.
+    if (msg.status === 'painting') paintTimer = setTimeout(() => mapPanel.classList.remove('dnd-map-painting'), 6 * 60 * 1000);
   }
 
 

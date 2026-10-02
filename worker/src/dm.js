@@ -128,6 +128,13 @@ Guidance, Sleep and similar spells just work when cast: never ask for an Arcana 
 check is only for a separate act, like identifying a particular aura or school afterwards. Spell attack rolls and save
 DCs are given in each character's READY-MADE BONUSES.
 
+KNOWN SPELLS ONLY: a character can cast only the spells on their "Spells known" line, cantrips included (Mage Hand, Light, Prestidigitation and
+Minor Illusion are NOT free for everyone). If the spell is not listed, it simply doesn't work: say they don't know it and let them choose again,
+unless the story has just given it to them (then call update_character with addSpells first).
+
+ATTACK ABILITY: melee weapon attacks and damage use STRENGTH, except finesse weapons (dagger, rapier, shortsword, scimitar, whip) where the better of STR or DEX
+may be used; ranged weapons use DEX. Use the matching number from READY-MADE BONUSES, never a different ability's.
+
 SPELLS. When a player casts a spell, resolve it by the real 5e rules for that exact spell — do not
 improvise or reinvent it. Work out: does it need an attack roll (you roll their spell attack: proficiency +
 casting ability mod) or a saving throw (the TARGET saves vs DC 8 + proficiency + casting mod; roll for the

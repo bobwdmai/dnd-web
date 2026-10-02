@@ -1,4 +1,5 @@
 import { detectMood } from './music.js';
+import { ensureSlots } from './spellslots.js';
 import { generateMapArt, b64ToBytes } from './mapart.js';
 import { DurableObject } from 'cloudflare:workers';
 import { takeTurn, formatCharacterSheet, findCharacterName } from './dm.js';
@@ -63,22 +64,22 @@ const CLASS_KITS = {
 
 function sanitizeSheet(raw, playerName) {
   const ab = raw?.abilityScores || {};
-  const hpMax = num(raw?.hp?.max, 1, 999, 10);
+  const hpMax = num(raw?.hp?.max, 1, 20, 10);
   return {
     name: str(raw?.name, 40) || playerName,
     race: str(raw?.race, 40),
     class: str(raw?.class, 40),
-    level: num(raw?.level, 1, 20, 1),
+    level: 1, // every character starts at level 1; levels are earned in play
     background: str(raw?.background, 60),
     alignment: str(raw?.alignment, 30),
     abilityScores: {
-      STR: num(ab.STR, 1, 30, 10), DEX: num(ab.DEX, 1, 30, 10), CON: num(ab.CON, 1, 30, 10),
-      INT: num(ab.INT, 1, 30, 10), WIS: num(ab.WIS, 1, 30, 10), CHA: num(ab.CHA, 1, 30, 10)
+      STR: num(ab.STR, 1, 20, 10), DEX: num(ab.DEX, 1, 20, 10), CON: num(ab.CON, 1, 20, 10),
+      INT: num(ab.INT, 1, 20, 10), WIS: num(ab.WIS, 1, 20, 10), CHA: num(ab.CHA, 1, 20, 10)
     },
     hp: { current: num(raw?.hp?.current, 0, hpMax, hpMax), max: hpMax },
     armorClass: num(raw?.armorClass, 1, 40, 10),
     speed: num(raw?.speed, 0, 200, 30),
-    proficiencyBonus: num(raw?.proficiencyBonus, 0, 10, 2),
+    proficiencyBonus: 2,
     savingThrows: strList(raw?.savingThrows, 20, 30),
     skills: strList(raw?.skills, 30, 40),
     equipment: (() => {
@@ -181,6 +182,7 @@ export class GameRoom extends DurableObject {
       changed = true;
     }
     if (!this.state.combat) { this.state.combat = newCombat(); changed = true; }
+    for (const sheet of Object.values(this.state.characters || {})) { if (sheet && !sheet.slots) { ensureSlots(sheet); changed = true; } }
     if (changed) this.#persist();
   }
 
@@ -395,6 +397,7 @@ export class GameRoom extends DurableObject {
       const body = await request.json();
       const playerName = str(body.playerName, 40) || 'Adventurer';
       const sheet = sanitizeSheet(body.sheet, playerName);
+      ensureSlots(sheet);
       // The form enforces a per-class skill quota (max 4, a Rogue's); this stops a hand-built
       // request from claiming more than any class could ever pick.
       sheet.skills = sheet.skills.slice(0, 4);
@@ -423,6 +426,7 @@ export class GameRoom extends DurableObject {
       // sheet almost always, but nothing stops a bad response from carrying a 0 max HP or an
       // out-of-range ability score straight into persisted state without this.
       const sheet = sanitizeSheet(await formatCharacterSheet(this.env, text, playerName), playerName);
+      ensureSlots(sheet);
       // Reuse an existing character stored under a differently-cased/spaced version of this
       // name (e.g. "Bob" vs "bob" on reconnect) instead of creating a stray duplicate.
       const key = findCharacterName(this.state.characters, playerName) || playerName;

@@ -1,4 +1,5 @@
 import * as dice from './dice.js';
+import { ensureSlots, slotsSummary, spendSlot, restoreSlots } from './spellslots.js';
 import { parseMapBlock, applyOps } from './map-commands.js';
 import { spendNeurons, getBudgetStatus } from './budget.js';
 import { RUN_COMBAT_TOOL, ADVANCE_STORY_TOOL, runStructureTool, summarizeStructure, advanceCombat } from './adventure.js';
@@ -8,6 +9,24 @@ import { RUN_COMBAT_TOOL, ADVANCE_STORY_TOOL, runStructureTool, summarizeStructu
 export const NARRATOR_MODEL = '@cf/google/gemma-4-26b-a4b-it';
 const MAX_TOOL_ITERATIONS = 12;
 // A function so it can sit up here while the tool definitions further down are still being evaluated.
+const SPEND_SLOT_TOOL = {
+  type: 'function',
+  function: {
+    name: 'spend_spell_slot',
+    description:
+      'Spend a spell slot when a character casts a LEVELED spell (level 1 or higher; never for cantrips). Call it BEFORE resolving the spell. ' +
+      'If it returns an error the character has no slot left and the spell fails to cast. Casting a spell at a higher level spends a higher slot.',
+    parameters: {
+      type: 'object',
+      properties: {
+        characterName: { type: 'string', description: 'Exact name of the caster, matching the party list.' },
+        level: { type: 'number', description: 'Slot level used (the spell\'s level, or higher if upcast).' },
+        spell: { type: 'string', description: 'Spell name.' }
+      },
+      required: ['characterName', 'level']
+    }
+  }
+};
 const SET_CONDITION_TOOL = {
   type: 'function',
   function: {
@@ -39,7 +58,7 @@ const PAINT_MAP_TOOL = {
     parameters: { type: 'object', properties: { reason: { type: 'string', description: 'Where or what the new map shows.' } }, required: ['reason'] }
   }
 };
-const narratorTools = () => [ROLL_TOOL, SFX_TOOL, UPDATE_CHARACTER_TOOL, RUN_COMBAT_TOOL, ADVANCE_STORY_TOOL, PAINT_MAP_TOOL, SET_CONDITION_TOOL];
+const narratorTools = () => [ROLL_TOOL, SFX_TOOL, UPDATE_CHARACTER_TOOL, RUN_COMBAT_TOOL, ADVANCE_STORY_TOOL, PAINT_MAP_TOOL, SET_CONDITION_TOOL, SPEND_SLOT_TOOL];
 const NARRATOR_MAX_TOKENS = 2000; // gpt-oss spends part of this on hidden reasoning before any text or tool call
 const MAP_MAX_TOKENS = 1600; // gpt-oss's hidden reasoning can otherwise eat the whole budget before any [MAP] text comes out
 
@@ -127,6 +146,11 @@ NO-ROLL SPELLS. Detect Magic, Light, Mage Hand, Prestidigitation, Mage Armor, Sh
 Guidance, Sleep and similar spells just work when cast: never ask for an Arcana (or any) check to cast or use them. A
 check is only for a separate act, like identifying a particular aura or school afterwards. Spell attack rolls and save
 DCs are given in each character's READY-MADE BONUSES.
+
+SPELL SLOTS: every leveled spell (level 1+) costs a slot: call spend_spell_slot BEFORE resolving it. If the tool returns an error the
+character is out of slots and the spell fails; say so. Cantrips never cost slots. Slots return only after a long rest: when the party
+rests for the night, call update_character with longRest true. Never invent or restore slots any other way. Characters start at level 1;
+raise a level only when the story truly earns it (end of a chapter or a major victory), via update_character level + hpMax.
 
 KNOWN SPELLS ONLY: a character can cast only the spells on their "Spells known" line, cantrips included (Mage Hand, Light, Prestidigitation and
 Minor Illusion are NOT free for everyone). If the spell is not listed, it simply doesn't work: say they don't know it and let them choose again,
@@ -326,6 +350,8 @@ const UPDATE_CHARACTER_TOOL = {
         addEquipment: { type: 'array', items: { type: 'string' }, description: 'Item names gained.' },
         addSpells: { type: 'array', items: { type: 'string' }, description: 'Spell names the character newly gains — from loot, a teacher, a boon, a scroll, a level-up, anything. Any class may receive spells.' },
         removeEquipment: { type: 'array', items: { type: 'string' }, description: 'Item names lost, used up, or consumed.' },
+        longRest: { type: 'boolean', description: 'true after the character completes a long rest (8 hours): restores full HP and all spell slots.' },
+        level: { type: 'number', description: 'New character level, ONLY when the story awards a level-up (milestone). Raises proficiency and spell slots; also send the new hpMax.' },
         reason: { type: 'string', description: 'Brief reason for the change, e.g. "took 8 slashing damage from the goblin".' }
       },
       required: ['characterName', 'reason']
@@ -379,6 +405,7 @@ function summarizeCharacters(characters) {
       `HP ${c.hp?.current ?? '?'}/${c.hp?.max ?? '?'}, AC ${c.armorClass ?? '?'}, proficiency bonus +${c.proficiencyBonus ?? 2}\n` +
       `  Abilities: ${mods}\n  Save proficiencies: ${saves}\n  Skill proficiencies: ${skills}\n` + computeBonuses(c) +
       `  Spells known: ${(c.spells || []).join(', ') || 'none yet (can learn some in the story)'}\n` +
+      `  Spell slots: ${slotsSummary(c)}\n` +
       `  Equipment (all they own): ${(c.equipment || []).join(', ') || 'nothing'}`;
   }).join('\n');
 }
@@ -638,6 +665,13 @@ async function runOllama(env, messages, { tools, max_tokens }) {
 function executeTool(state, name, args, sideEffects) {
   const { sfxRequests, characterUpdates } = sideEffects;
   const { rollResults } = sideEffects;
+  if (name === 'spend_spell_slot') {
+    const key = findCharacterName(state.characters, args.characterName);
+    if (!key) return { error: `No character named "${args.characterName}"` };
+    const result = spendSlot(state.characters[key], Number(args.level));
+    if (!result.error) characterUpdates.add(key);
+    return result;
+  }
   if (name === 'set_condition') {
     const target = String(args.target || '').trim().slice(0, 60), cond = String(args.condition || '').trim().toLowerCase().slice(0, 30);
     if (!target || !cond) return { error: 'target and condition are required' };
@@ -673,6 +707,12 @@ function executeTool(state, name, args, sideEffects) {
     if (typeof args.hpMax === 'number') sheet.hp.max = Math.max(1, Math.round(args.hpMax));
     if (typeof args.hpCurrent === 'number') sheet.hp.current = clamp(Math.round(args.hpCurrent), 0, sheet.hp.max);
     if (typeof args.armorClass === 'number') sheet.armorClass = Math.round(args.armorClass);
+    if (typeof args.level === 'number' && args.level > (sheet.level || 1)) {
+      sheet.level = clamp(Math.round(args.level), 1, 20);
+      sheet.proficiencyBonus = 2 + Math.floor((sheet.level - 1) / 4);
+      ensureSlots(sheet);
+    }
+    if (args.longRest === true) { sheet.hp.current = sheet.hp.max; restoreSlots(sheet); }
     if (args.abilityScores && typeof args.abilityScores === 'object') {
       for (const [k, v] of Object.entries(args.abilityScores)) {
         if (['STR', 'DEX', 'CON', 'INT', 'WIS', 'CHA'].includes(k) && typeof v === 'number') {

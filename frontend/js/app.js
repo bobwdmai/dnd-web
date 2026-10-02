@@ -915,6 +915,12 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
 
   function cssId(name) { return String(name).replace(/[^a-z0-9]/gi, '_'); }
 
+  function slotText(sheet) {
+    const max = sheet.slots?.max || {}, used = sheet.slots?.used || {};
+    const parts = Object.keys(max).map(l => `L${l}: ${max[l] - (used[l] || 0)}/${max[l]}`);
+    return parts.length ? parts.join(' · ') : 'none';
+  }
+
   function renderSheet(name, sheet) {
     const id = `dnd-sheet-${cssId(name)}`;
     let card = document.getElementById(id);
@@ -936,6 +942,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
         <p><strong>Equipment:</strong> ${escapeHtml((sheet.equipment || []).join(', ') || '—')}</p>
         <p><strong>Features:</strong> ${escapeHtml((sheet.features || []).join(', ') || '—')}</p>
         <p><strong>Spells:</strong> ${escapeHtml((sheet.spells || []).join(', ') || '—')}</p>
+        <p><strong>Spell slots:</strong> ${escapeHtml(slotText(sheet))}</p>
         <p><strong>Notes:</strong> ${escapeHtml(sheet.notes || '—')}</p>
       </details>`;
     card.querySelector('.dnd-sheet-remove').addEventListener('click', async () => {

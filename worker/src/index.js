@@ -154,6 +154,14 @@ async function handle(request, env) {
       });
     }
 
+    const adminResetMatch = url.pathname.match(/^\/api\/admin\/room\/([A-Za-z0-9]+)\/new-adventure$/);
+    if (adminResetMatch && request.method === 'POST') {
+      if (!isAdmin(request, env)) return json(request, { error: 'Unauthorized' }, 401);
+      const stub = env.GAME_ROOM.getByName(normalizeCode(adminResetMatch[1]));
+      const doResponse = await stub.fetch('https://do/admin/new-adventure', { method: 'POST' });
+      return json(request, await doResponse.json(), doResponse.status);
+    }
+
     const adminDeleteMatch = url.pathname.match(/^\/api\/admin\/room\/([A-Za-z0-9]+)$/);
     if (adminDeleteMatch && request.method === 'DELETE') {
       if (!isAdmin(request, env)) return json(request, { error: 'Unauthorized' }, 401);

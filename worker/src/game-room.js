@@ -291,6 +291,24 @@ export class GameRoom extends DurableObject {
     this.#broadcast({ type: 'players', list: this.#playerList(), party: this.#publicParty(exceptWs) }, exceptWs);
   }
 
+  /** Starts a fresh adventure: story, combat and map reset; characters carry over, fully healed. */
+  #resetStory() {
+      this.state.adventure = newAdventure(this.state.adventure.id);
+      this.state.combat = newCombat();
+      this.state.conditions = {};
+      this.state.history = [];
+      this.state.map = { lines: [], labels: [] };
+      this.state.mapArt = null; // the next chapter's opening paints a fresh map (see #maybeOpen)
+      for (const sheet of Object.values(this.state.characters)) {
+        if (sheet?.hp) sheet.hp.current = sheet.hp.max;
+      }
+      this.#persist();
+      for (const socket of this.ctx.getWebSockets()) {
+        const who = socket.deserializeAttachment()?.name;
+        if (who) this.#sendStateTo(socket, who);
+      }
+  }
+
   #playerList() {
     const names = [];
     for (const ws of this.ctx.getWebSockets()) {
@@ -318,6 +336,13 @@ export class GameRoom extends DurableObject {
         campaign: this.state?.campaign || null,
         ended: !!this.state?.ended
       });
+    }
+
+    if (url.pathname.endsWith('/admin/new-adventure') && request.method === 'POST') {
+      this.#ensureStructure();
+      this.#resetStory();
+      this.#maybeOpen();
+      return Response.json({ ok: true, adventure: this.state.adventure.title });
     }
 
     if (url.pathname.endsWith('/delete') && request.method === 'DELETE') {
@@ -538,21 +563,7 @@ export class GameRoom extends DurableObject {
         this.#send(ws, { type: 'error', error: 'Only the game owner can begin a new adventure.' });
         return;
       }
-      this.state.adventure = newAdventure(this.state.adventure.id);
-      this.state.combat = newCombat();
-      this.state.conditions = {};
-      this.state.history = [];
-      this.state.map = { lines: [], labels: [] };
-      this.state.mapArt = null; // the next chapter's opening paints a fresh map (see #maybeOpen)
-      // Characters carry over, fully healed for the fresh start.
-      for (const sheet of Object.values(this.state.characters)) {
-        if (sheet?.hp) sheet.hp.current = sheet.hp.max;
-      }
-      this.#persist();
-      for (const socket of this.ctx.getWebSockets()) {
-        const who = socket.deserializeAttachment()?.name;
-        if (who) this.#sendStateTo(socket, who);
-      }
+      this.#resetStory();
       this.#maybeOpen();
       return;
     }
